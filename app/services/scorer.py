@@ -102,7 +102,7 @@ Context (AI-related summary from filings): {filing_summary}
 Return JSON exactly as instructed in the system prompt.
 """
 
-    response = await llm_client.chat.completions.create(
+    response = await llm_client.client.chat.completions.create(
         model=settings.llm_model,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
