@@ -3,3 +3,8 @@ uvicorn
 httpx
 openai>=1.0.0
 pydantic
+alembic
+psycopg2-binary
+sqlalchemy
+databases[postgresql]
+asyncpg
