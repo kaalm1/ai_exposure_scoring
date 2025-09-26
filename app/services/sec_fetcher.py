@@ -2,6 +2,7 @@ import requests
 
 BASE_HEADERS = {"User-Agent": "YourName Contact@yourdomain.com"}
 
+
 def get_cik_from_ticker(ticker: str) -> str:
     url = "https://www.sec.gov/files/company_tickers.json"
     resp = requests.get(url, headers=BASE_HEADERS).json()
@@ -9,6 +10,7 @@ def get_cik_from_ticker(ticker: str) -> str:
         if entry["ticker"].lower() == ticker.lower():
             return str(entry["cik_str"]).zfill(10)
     raise ValueError("Ticker not found in SEC mapping")
+
 
 def fetch_latest_filing_text(cik: str) -> str:
     submissions_url = f"https://data.sec.gov/submissions/CIK{cik}.json"

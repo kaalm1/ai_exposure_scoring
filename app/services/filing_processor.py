@@ -1,6 +1,7 @@
 from .chunker import chunk_text
 from .summarizer import summarize_chunk
 
+
 async def process_filing(text: str) -> str:
     chunks = chunk_text(text, max_tokens=2000)
     summaries = []

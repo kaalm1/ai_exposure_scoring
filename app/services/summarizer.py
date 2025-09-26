@@ -13,13 +13,14 @@ Ignore boilerplate.
 Return a concise summary (<=200 words).
 """
 
+
 async def summarize_chunk(chunk: str) -> str:
     resp = await client.chat.completions.create(
         model="gpt-4.1-mini",
         messages=[
             {"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
-            {"role": "user", "content": chunk}
+            {"role": "user", "content": chunk},
         ],
-        temperature=0
+        temperature=0,
     )
     return resp.choices[0].message.content.strip()
