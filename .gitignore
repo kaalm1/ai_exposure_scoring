@@ -1,0 +1,52 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+.venv/
+.env/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Python tools
+pip-log.txt
+pip-delete-this-directory.txt
+*.pytest_cache/
+.pytest_cache/
+*.mypy_cache/
+.mypy_cache/
+
+# Editor directories and files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Data files (SEC filings, datasets)
+data/sec_filings/
+notebooks/checkpoints/
+
+# Secrets / API keys
+configs/config.yaml
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Misc
+*.bak
+*.tmp

@@ -1,0 +1,5 @@
+fastapi
+uvicorn
+httpx
+openai>=1.0.0
+pydantic
