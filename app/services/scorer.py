@@ -4,6 +4,7 @@ from app.dal.ai_scores import insert_score
 from app.models.schemas import AIScoreCreate
 from .sec_fetcher import get_cik_from_ticker, fetch_latest_filing_text
 from .filing_processor import process_filing
+from app.config import settings
 
 client = AsyncOpenAI()
 
@@ -42,7 +43,7 @@ Return JSON only.
 """
 
     response = await client.chat.completions.create(
-        model="gpt-4.1",
+        model=settings.llm_model,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
