@@ -10,7 +10,7 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.sql import select
-from app.services.db import database
+from app.db import database
 
 metadata = MetaData()
 

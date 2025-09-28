@@ -6,7 +6,7 @@ from app.config import settings
 engine: AsyncEngine = create_async_engine(settings.database_url, echo=True, future=True)
 
 # Async session factory
-async_session: sessionmaker[AsyncSession] = sessionmaker( # type: ignore
+async_session_factory: sessionmaker[AsyncSession] = sessionmaker( # type: ignore
     bind=engine,
     class_=AsyncSession,
     expire_on_commit=False

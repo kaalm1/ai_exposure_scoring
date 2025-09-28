@@ -9,3 +9,4 @@ sqlalchemy
 databases[postgresql]
 asyncpg
 python-dotenv
+yfinance
