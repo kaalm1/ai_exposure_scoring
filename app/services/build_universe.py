@@ -46,7 +46,13 @@ class UniverseBuilderService:
         sec_tickers = await self.fetch_sec_tickers()
         processed = 0
 
+        # Get already enriched tickers from DAL
+        enriched_tickers = await self.ai_score_dal.get_enriched_tickers()
+
         for ticker, meta in sec_tickers.items():
+            if ticker in enriched_tickers:
+                continue  # skip already enriched
+
             if limit and processed >= limit:
                 break
 

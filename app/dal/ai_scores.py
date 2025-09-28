@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.ai_scores import AIScore
 from app.models.schemas import AIScoreCreate
@@ -9,6 +9,16 @@ class AIScoreDAL:
 
     def __init__(self, session: AsyncSession):
         self.session = session
+
+    async def get_enriched_tickers(self) -> set[str]:
+        """Return a set of tickers that already have sector/industry filled."""
+        result = await self.session.execute(
+            select(AIScore.ticker).where(
+                or_(AIScore.sector != None, AIScore.industry != None)
+            )
+        )
+        rows = result.scalars().all()
+        return set(rows)
 
     async def upsert(
             self,
