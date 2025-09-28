@@ -1,3 +1,4 @@
+import time
 import httpx
 import yfinance as yf
 from app.dal.ai_scores import AIScoreDAL
@@ -6,19 +7,19 @@ SEC_TICKER_URL = "https://www.sec.gov/files/company_tickers.json"
 
 
 class UniverseBuilderService:
-    """Service to build and refresh the AI company universe."""
+    """Service to build and refresh the AI company universe using batched yfinance requests."""
 
-    def __init__(self, ai_score_dal: AIScoreDAL):
+    def __init__(self, ai_score_dal: AIScoreDAL, batch_size: int = 50):
         self.ai_score_dal = ai_score_dal
+        self.batch_size = batch_size
 
-    async def fetch_sec_tickers(self) -> dict[str, dict[str, str]]:
+    def fetch_sec_tickers(self) -> dict[str, dict[str, str]]:
         """Fetch ticker -> CIK mapping from SEC."""
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.get(
-                SEC_TICKER_URL, headers={"User-Agent": "ai-exposure-app"}
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        resp = httpx.get(
+            SEC_TICKER_URL, timeout=30, headers={"User-Agent": "ai-exposure-app"}
+        )
+        resp.raise_for_status()
+        data = resp.json()
 
         tickers = {}
         for _, entry in data.items():
@@ -29,46 +30,75 @@ class UniverseBuilderService:
                 tickers[ticker.upper()] = {"cik": cik, "name": name}
         return tickers
 
-    async def enrich_with_yfinance(self, ticker: str) -> dict | None:
-        """Fetch sector, industry, description from Yahoo Finance."""
-        try:
-            info = yf.Ticker(ticker).info
-            return {
-                "sector": info.get("sector"),
-                "industry": info.get("industry"),
-                "description": info.get("longBusinessSummary"),
-            }
-        except Exception:
-            return None
+    def enrich_batch(self, tickers: list[str]) -> dict[str, dict]:
+        """Fetch sector, industry, description and other key fields for multiple tickers using yfinance.Tickers."""
+        info_dict = {}
+        if not tickers:
+            return info_dict
 
-    async def build_universe(self, limit: int | None = None) -> int:
-        """Build/refresh the AI universe using SEC + Yahoo Finance."""
-        sec_tickers = await self.fetch_sec_tickers()
+        try:
+            yf_batch = yf.Tickers(" ".join(tickers))
+            for ticker in tickers:
+                info = getattr(yf_batch.tickers.get(ticker), "info", None)
+                if not info:
+                    continue
+                info_dict[ticker] = {
+                    "company_name": info.get("longName") or info.get("shortName"),
+                    "sector": info.get("sector"),
+                    "industry": info.get("industry"),
+                    "description": info.get("longBusinessSummary"),
+                    "market_cap": info.get("marketCap"),
+                    "enterprise_value": info.get("enterpriseValue"),
+                    "employees": info.get("fullTimeEmployees"),
+                    "website": info.get("website"),
+                    "logo_url": info.get("logo_url"),
+                    "beta": info.get("beta"),
+                    "recommendation_key": info.get("recommendationKey"),
+                    "recommendation_mean": info.get("recommendationMean"),
+                    "hq_city": info.get("city"),
+                    "hq_state": info.get("state"),
+                }
+        except Exception:
+            pass  # optionally log errors
+        return info_dict
+
+    def build_universe(self, limit: int | None = None) -> int:
+        """Build/refresh the AI universe using SEC + Yahoo Finance in batches."""
+        sec_tickers = self.fetch_sec_tickers()
         processed = 0
 
         # Get already enriched tickers from DAL
-        enriched_tickers = await self.ai_score_dal.get_enriched_tickers()
+        enriched_tickers = self.ai_score_dal.get_enriched_tickers()
 
-        for ticker, meta in sec_tickers.items():
-            if ticker in enriched_tickers:
-                continue  # skip already enriched
+        # Filter out already enriched
+        to_process = [
+            (ticker, meta) for ticker, meta in sec_tickers.items() if ticker not in enriched_tickers
+        ]
 
-            if limit and processed >= limit:
-                break
+        # Apply limit if provided
+        if limit:
+            to_process = to_process[:limit]
 
-            enrich = await self.enrich_with_yfinance(ticker)
-            if not enrich:
-                continue
+        # Process in batches
+        for i in range(0, len(to_process), self.batch_size):
+            batch = to_process[i : i + self.batch_size]
+            tickers_batch = [ticker for ticker, _ in batch]
 
-            await self.ai_score_dal.upsert(
-                ticker=ticker,
-                cik=meta["cik"],
-                company_name=meta["name"],
-                sector=enrich.get("sector"),
-                industry=enrich.get("industry"),
-                description=enrich.get("description"),
-            )
+            yfinance_data = self.enrich_batch(tickers_batch)
 
-            processed += 1
+            for ticker, meta in batch:
+                data = yfinance_data.get(ticker)
+                if not data:
+                    continue
+
+                # Add CIK from SEC mapping
+                data["cik"] = meta["cik"]
+
+                # Upsert using the new DAL
+                self.ai_score_dal.upsert(ticker, data)
+                processed += 1
+
+            # optional wait between batches to avoid hitting rate limits
+            time.sleep(5)
 
         return processed

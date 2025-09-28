@@ -20,36 +20,24 @@ class AIScoreDAL:
         rows = result.scalars().all()
         return set(rows)
 
-    async def upsert(
-            self,
-            ticker: str,
-            cik: str,
-            company_name: str,
-            sector: str | None = None,
-            industry: str | None = None,
-            description: str | None = None,
-    ) -> AIScore:
-        """Insert or update an AI Score company."""
-        result = await self.session.execute(
-            select(AIScore).where(AIScore.ticker == ticker)
-        )
+    async def upsert(self, ticker: str, data: dict) -> AIScore:
+        """
+        Insert or update an AI Score company.
+        Accepts a dict with keys matching column names.
+        Ignores keys that are not model attributes.
+        """
+        result = await self.session.execute(select(AIScore).where(AIScore.ticker == ticker))
         company = result.scalars().first()
 
         if company:
-            company.company_name = company_name
-            company.cik = cik
-            company.sector = sector
-            company.industry = industry
-            company.description = description
+            # Update existing fields
+            for key, value in data.items():
+                if hasattr(AIScore, key):
+                    setattr(company, key, value)
         else:
-            company = AIScore(
-                ticker=ticker,
-                company_name=company_name,
-                cik=cik,
-                sector=sector,
-                industry=industry,
-                description=description,
-            )
+            # Filter dict to only valid fields
+            valid_data = {k: v for k, v in data.items() if hasattr(AIScore, k)}
+            company = AIScore(**valid_data)
             self.session.add(company)
 
         await self.session.flush()
