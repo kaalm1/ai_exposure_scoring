@@ -1,9 +1,9 @@
-from logging.config import fileConfig
-from sqlalchemy import engine_from_config, pool
-from sqlalchemy import create_engine
-from alembic import context
-import yaml
 import sys
+from logging.config import fileConfig
+
+import yaml
+from alembic import context
+from sqlalchemy import create_engine, engine_from_config, pool
 
 sys.path.append(".")  # to import app modules if needed
 

@@ -1,14 +1,5 @@
+from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Text, func
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy import (
-    Column,
-    Integer,
-    String,
-    Float,
-    DateTime,
-    Text,
-    Boolean,
-    func,
-)
 
 Base = declarative_base()
 

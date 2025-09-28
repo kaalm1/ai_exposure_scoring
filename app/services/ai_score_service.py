@@ -1,6 +1,8 @@
-from typing import Optional, List
+from typing import List, Optional
+
+from app.dal.ai_scores import get_recent_scores, get_score_by_company, insert_score
 from app.models.schemas import AIScoreCreate, AIScoreRead
-from app.dal.ai_scores import insert_score, get_recent_scores, get_score_by_company
+
 
 class AIScoreService:
     """
@@ -25,7 +27,7 @@ class AIScoreService:
             reasoning_pure_play=result["reasoning"]["pure_play"],
             reasoning_product_integration=result["reasoning"]["product_integration"],
             reasoning_research_focus=result["reasoning"]["research_focus"],
-            reasoning_partnership=result["reasoning"]["partnership"]
+            reasoning_partnership=result["reasoning"]["partnership"],
         )
         await insert_score(score_obj)
 

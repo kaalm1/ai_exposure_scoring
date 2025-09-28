@@ -1,12 +1,13 @@
-from pydantic import BaseSettings
-import yaml
 from pathlib import Path
+
+import yaml
+from pydantic import BaseSettings
 
 
 class Settings(BaseSettings):
     # Required env variables (from .env)
     database_url: str
-    openai_api_key: str = 'default'
+    openai_api_key: str = "default"
     llm_model: str = "gpt-4.1"
 
     # All other YAML keys

@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+
 from app.models.schemas import ScoreRequest
 from app.services.scorer import score_company
 

@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
-from app.db import async_session_factory
+
 from app.dal.ai_scores import AIScoreDAL
+from app.db import async_session_factory
 
 
 @asynccontextmanager

@@ -1,5 +1,6 @@
-from sqlalchemy import select, or_
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.models.ai_scores import AIScore
 from app.models.schemas import AIScoreCreate
 
@@ -26,7 +27,9 @@ class AIScoreDAL:
         Accepts a dict with keys matching column names.
         Ignores keys that are not model attributes.
         """
-        result = await self.session.execute(select(AIScore).where(AIScore.ticker == ticker))
+        result = await self.session.execute(
+            select(AIScore).where(AIScore.ticker == ticker)
+        )
         company = result.scalars().first()
 
         if company:

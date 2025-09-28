@@ -1,6 +1,8 @@
 import time
+
 import httpx
 import yfinance as yf
+
 from app.dal.ai_scores import AIScoreDAL
 
 SEC_TICKER_URL = "https://www.sec.gov/files/company_tickers.json"
@@ -72,7 +74,9 @@ class UniverseBuilderService:
 
         # Filter out already enriched
         to_process = [
-            (ticker, meta) for ticker, meta in sec_tickers.items() if ticker not in enriched_tickers
+            (ticker, meta)
+            for ticker, meta in sec_tickers.items()
+            if ticker not in enriched_tickers
         ]
 
         # Apply limit if provided

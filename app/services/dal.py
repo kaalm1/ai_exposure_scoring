@@ -1,15 +1,16 @@
 from sqlalchemy import (
+    JSON,
+    Column,
+    DateTime,
+    Float,
+    Integer,
     MetaData,
     Table,
-    Column,
-    Integer,
     Text,
-    Float,
-    DateTime,
-    JSON,
     func,
 )
 from sqlalchemy.sql import select
+
 from app.db import database
 
 metadata = MetaData()

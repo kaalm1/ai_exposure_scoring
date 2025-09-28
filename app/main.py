@@ -1,6 +1,7 @@
 from fastapi import FastAPI
-from app.routers import score
+
 from app.db import database
+from app.routers import score
 
 app = FastAPI(title="AI Exposure Scoring API", version="0.1.0")
 app.include_router(score.router)
