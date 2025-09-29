@@ -10,3 +10,4 @@ databases[postgresql]
 asyncpg
 python-dotenv
 yfinance
+redis
