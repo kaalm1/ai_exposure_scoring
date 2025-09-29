@@ -1,14 +1,14 @@
+import asyncio
 import logging
 import time
-from typing import Optional, Dict, Any, List, Tuple
+from collections import deque
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from dataclasses import dataclass, field
-from collections import deque
-import asyncio
 from threading import Lock
+from typing import Any, Dict, List, Optional, Tuple
 
-from openai import AsyncOpenAI, APIError, RateLimitError
+from openai import APIError, AsyncOpenAI, RateLimitError
 
 from app.config import settings
 
@@ -41,6 +41,7 @@ class ProviderConfig:
 @dataclass
 class UsageTracker:
     """Track usage with sliding windows for rate limiting."""
+
     minute_requests: deque = field(default_factory=deque)
     day_requests: deque = field(default_factory=deque)
     failed_until: Optional[float] = None
@@ -137,10 +138,14 @@ class RedisStore:
 
             return True
         except Exception as e:
-            logger.warning(f"Redis error in check_rate_limit, falling back to memory: {e}")
+            logger.warning(
+                f"Redis error in check_rate_limit, falling back to memory: {e}"
+            )
             return self._check_rate_limit_memory(provider, config)
 
-    def _check_rate_limit_memory(self, provider: Provider, config: ProviderConfig) -> bool:
+    def _check_rate_limit_memory(
+        self, provider: Provider, config: ProviderConfig
+    ) -> bool:
         """Fallback to in-memory rate limiting."""
         tracker = self.memory_store.get_tracker(provider)
         current_time = time.time()
@@ -175,7 +180,9 @@ class RedisStore:
                 pipe.expire(key, 86400)
                 pipe.execute()
         except Exception as e:
-            logger.warning(f"Redis error in increment_usage, falling back to memory: {e}")
+            logger.warning(
+                f"Redis error in increment_usage, falling back to memory: {e}"
+            )
             self._increment_usage_memory(provider)
 
     def _increment_usage_memory(self, provider: Provider):
@@ -190,7 +197,9 @@ class RedisStore:
             self.redis.setex(key, duration, "1")
             logger.warning(f"Marked {provider.value} as failed for {duration} seconds")
         except Exception as e:
-            logger.warning(f"Redis error in mark_provider_failed, falling back to memory: {e}")
+            logger.warning(
+                f"Redis error in mark_provider_failed, falling back to memory: {e}"
+            )
             self._mark_failed_memory(provider, duration)
 
     def _mark_failed_memory(self, provider: Provider, duration: int):
@@ -205,7 +214,9 @@ class RedisStore:
             is_failed = bool(self.redis.get(key))
             return is_failed
         except Exception as e:
-            logger.warning(f"Redis error in is_provider_failed, falling back to memory: {e}")
+            logger.warning(
+                f"Redis error in is_provider_failed, falling back to memory: {e}"
+            )
             return self._is_failed_memory(provider)
 
     def _is_failed_memory(self, provider: Provider) -> bool:
@@ -233,61 +244,84 @@ class ProviderManager:
         providers = []
 
         # OpenRouter - Free tier: varies by model
-        if hasattr(settings, 'openrouter_api_key') and settings.openrouter_api_key:
-            providers.append(ProviderConfig(
-                name=Provider.OPENROUTER,
-                base_url="https://openrouter.ai/api/v1",
-                api_key=settings.openrouter_api_key,
-                model=getattr(settings, 'openrouter_model', 'meta-llama/llama-3.2-3b-instruct:free'),
-                requests_per_minute=20,
-                requests_per_day=200,
-            ))
+        if hasattr(settings, "openrouter_api_key") and settings.openrouter_api_key:
+            providers.append(
+                ProviderConfig(
+                    name=Provider.OPENROUTER,
+                    base_url="https://openrouter.ai/api/v1",
+                    api_key=settings.openrouter_api_key,
+                    model=getattr(
+                        settings,
+                        "openrouter_model",
+                        "meta-llama/llama-3.2-3b-instruct:free",
+                    ),
+                    requests_per_minute=20,
+                    requests_per_day=200,
+                )
+            )
 
         # Groq - Free tier: 30 requests/minute, 14,400/day
-        if hasattr(settings, 'groq_api_key') and settings.groq_api_key:
-            providers.append(ProviderConfig(
-                name=Provider.GROQ,
-                base_url="https://api.groq.com/openai/v1",
-                api_key=settings.groq_api_key,
-                model=getattr(settings, 'groq_model', 'llama-3.1-8b-instant'),
-                requests_per_minute=30,
-                requests_per_day=14400,
-            ))
+        if hasattr(settings, "groq_api_key") and settings.groq_api_key:
+            providers.append(
+                ProviderConfig(
+                    name=Provider.GROQ,
+                    base_url="https://api.groq.com/openai/v1",
+                    api_key=settings.groq_api_key,
+                    model=getattr(settings, "groq_model", "llama-3.1-8b-instant"),
+                    requests_per_minute=30,
+                    requests_per_day=14400,
+                )
+            )
 
         # Google AI Studio - Free tier: 15 requests/minute
-        if hasattr(settings, 'google_studio_api_key') and settings.google_studio_api_key:
-            providers.append(ProviderConfig(
-                name=Provider.GOOGLE_STUDIO,
-                base_url="https://generativelanguage.googleapis.com/v1beta/openai",
-                api_key=settings.google_studio_api_key,
-                model=getattr(settings, 'google_studio_model', 'gemini-1.5-flash'),
-                requests_per_minute=15,
-                requests_per_day=1500,
-            ))
+        if (
+            hasattr(settings, "google_studio_api_key")
+            and settings.google_studio_api_key
+        ):
+            providers.append(
+                ProviderConfig(
+                    name=Provider.GOOGLE_STUDIO,
+                    base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+                    api_key=settings.google_studio_api_key,
+                    model=getattr(settings, "google_studio_model", "gemini-1.5-flash"),
+                    requests_per_minute=15,
+                    requests_per_day=1500,
+                )
+            )
 
         # Cerebras - Free tier: generous limits
-        if hasattr(settings, 'cerebras_api_key') and settings.cerebras_api_key:
-            providers.append(ProviderConfig(
-                name=Provider.CEREBRAS,
-                base_url="https://api.cerebras.ai/v1",
-                api_key=settings.cerebras_api_key,
-                model=getattr(settings, 'cerebras_model', 'llama3.1-8b'),
-                requests_per_minute=30,
-            ))
+        if hasattr(settings, "cerebras_api_key") and settings.cerebras_api_key:
+            providers.append(
+                ProviderConfig(
+                    name=Provider.CEREBRAS,
+                    base_url="https://api.cerebras.ai/v1",
+                    api_key=settings.cerebras_api_key,
+                    model=getattr(settings, "cerebras_model", "llama3.1-8b"),
+                    requests_per_minute=30,
+                )
+            )
 
         # OpenAI - fallback if configured
-        if hasattr(settings, 'openai_api_key') and settings.openai_api_key:
-            providers.append(ProviderConfig(
-                name=Provider.OPENAI,
-                base_url=getattr(settings, 'openai_base_url', 'https://api.openai.com/v1'),
-                api_key=settings.openai_api_key,
-                model=getattr(settings, 'openai_model', 'gpt-3.5-turbo'),
-            ))
+        if hasattr(settings, "openai_api_key") and settings.openai_api_key:
+            providers.append(
+                ProviderConfig(
+                    name=Provider.OPENAI,
+                    base_url=getattr(
+                        settings, "openai_base_url", "https://api.openai.com/v1"
+                    ),
+                    api_key=settings.openai_api_key,
+                    model=getattr(settings, "openai_model", "gpt-3.5-turbo"),
+                )
+            )
 
         if not providers:
-            raise ValueError("No LLM providers configured. Please add API keys to settings.")
+            raise ValueError(
+                "No LLM providers configured. Please add API keys to settings."
+            )
 
-        logger.info(f"Initialized {len(providers)} providers: {[p.name.value for p in providers]}")
+        logger.info(
+            f"Initialized {len(providers)} providers: {[p.name.value for p in providers]}"
+        )
         return providers
 
     def _check_rate_limit(self, config: ProviderConfig) -> bool:
@@ -300,7 +334,10 @@ class ProviderManager:
             current_time = time.time()
             minute_count, day_count = tracker.get_counts(current_time)
 
-            if config.requests_per_minute and minute_count >= config.requests_per_minute:
+            if (
+                config.requests_per_minute
+                and minute_count >= config.requests_per_minute
+            ):
                 logger.warning(f"{config.name.value} RPM limit reached")
                 return False
 
@@ -327,7 +364,9 @@ class ProviderManager:
             # In-memory store
             tracker = self.store.get_tracker(config.name)
             tracker.mark_failed(duration)
-            logger.warning(f"Marked {config.name.value} as failed for {duration} seconds")
+            logger.warning(
+                f"Marked {config.name.value} as failed for {duration} seconds"
+            )
 
     def _is_provider_failed(self, config: ProviderConfig) -> bool:
         """Check if provider is marked as failed."""
@@ -361,14 +400,16 @@ class ProviderManager:
         client = self._get_client(config)
 
         # Set model if not provided
-        if 'model' not in kwargs:
-            kwargs['model'] = config.model
+        if "model" not in kwargs:
+            kwargs["model"] = config.model
 
         try:
             # Increment usage before making request
             self._increment_usage(config)
 
-            logger.info(f"Making request to {config.name.value} with model {kwargs['model']}")
+            logger.info(
+                f"Making request to {config.name.value} with model {kwargs['model']}"
+            )
             response = await client.chat.completions.create(**kwargs)
 
             logger.info(f"Successfully received response from {config.name.value}")
@@ -422,14 +463,18 @@ class ProviderManager:
                 )
 
                 # Move to next provider
-                self.current_provider_idx = (self.current_provider_idx + 1) % len(self.providers)
+                self.current_provider_idx = (self.current_provider_idx + 1) % len(
+                    self.providers
+                )
 
                 # Add small delay before trying next provider
                 if attempt < len(self.providers) - 1:
                     await asyncio.sleep(0.5)
 
         # All providers failed
-        raise Exception(f"All {len(self.providers)} providers failed. Last error: {last_error}")
+        raise Exception(
+            f"All {len(self.providers)} providers failed. Last error: {last_error}"
+        )
 
     def get_usage_stats(self) -> Dict[str, Dict[str, int]]:
         """Get current usage statistics for all providers."""
@@ -479,7 +524,7 @@ class LLMClient:
             ):
                 print(chunk.choices[0].delta.content)
         """
-        kwargs['stream'] = True
+        kwargs["stream"] = True
         return await self._manager.create_completion(**kwargs)
 
     def get_available_providers(self) -> List[str]:
@@ -496,14 +541,12 @@ def create_llm_client() -> LLMClient:
     """Factory function to create LLM client with optional Redis."""
     store = None
 
-    if hasattr(settings, 'redis_url') and settings.redis_url:
+    if hasattr(settings, "redis_url") and settings.redis_url:
         try:
             from redis import Redis
 
             redis_client = Redis.from_url(
-                settings.redis_url,
-                decode_responses=True,
-                socket_connect_timeout=5
+                settings.redis_url, decode_responses=True, socket_connect_timeout=5
             )
             redis_client.ping()
             store = RedisStore(redis_client)

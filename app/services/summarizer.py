@@ -1,6 +1,4 @@
-from openai import AsyncOpenAI
-
-client = AsyncOpenAI()
+from app.services.llm import llm_client
 
 SUMMARY_SYSTEM_PROMPT = """
 You are an assistant that extracts AI-related insights from SEC filings.
@@ -15,8 +13,15 @@ Return a concise summary (<=200 words).
 
 
 async def summarize_chunk(chunk: str) -> str:
-    resp = await client.chat.completions.create(
-        model="gpt-4.1-mini",
+    # resp = await client.chat.completions.create(
+    #     model="gpt-4.1-mini",
+    #     messages=[
+    #         {"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
+    #         {"role": "user", "content": chunk},
+    #     ],
+    #     temperature=0,
+    # )
+    resp = await llm_client.create_completion(
         messages=[
             {"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
             {"role": "user", "content": chunk},

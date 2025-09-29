@@ -102,8 +102,23 @@ Context (AI-related summary from filings): {filing_summary}
 Return JSON exactly as instructed in the system prompt.
 """
 
-    response = await llm_client.client.chat.completions.create(
-        model=settings.llm_model,
+    # response = await llm_client.client.chat.completions.create(
+    #     model=settings.llm_model,
+    #     messages=[
+    #         {"role": "system", "content": SYSTEM_PROMPT},
+    #         {"role": "user", "content": user_prompt},
+    #     ],
+    #     temperature=0,
+    #     response_format={
+    #         "type": "json_schema",
+    #         "json_schema": {
+    #             "name": "ai_score_response",
+    #             "schema": SCHEMA,
+    #         },
+    #     },
+    # )
+
+    response = await llm_client.create_completion(
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
