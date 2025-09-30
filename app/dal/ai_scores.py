@@ -1,8 +1,9 @@
 import logging
-from sqlalchemy import or_, select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from typing import Optional
+
+from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.ai_scores import AIScore
 from app.models.schemas import AIScoreCreate

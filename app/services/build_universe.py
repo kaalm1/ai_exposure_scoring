@@ -1,9 +1,10 @@
 import logging
-from typing import Optional
 import time
+from typing import Optional
 
 import httpx
 import yfinance as yf
+from yfinance.exceptions import YFRateLimitError
 
 from app.dal.ai_scores import AIScoreDAL
 
@@ -76,6 +77,9 @@ class UniverseBuilderService:
                     "hq_state": info.get("state"),
                 }
             logger.info(f"Fetched {len(info_dict)} tickers")
+        except YFRateLimitError:
+            logger.error("Rate limit hit! Stopping universe build.")
+            raise  # bubble up to stop everything
         except Exception:
             logger.exception(
                 "Failed to fetch yfinance.Tickers", extra={"tickers": tickers}
@@ -108,41 +112,49 @@ class UniverseBuilderService:
 
         logger.info("Processing %d tickers...", len(to_process))
 
-        # Process in batches
-        for i in range(0, len(to_process), self.batch_size):
-            batch = to_process[i: i + self.batch_size]
-            tickers_batch = [ticker for ticker, _ in batch]
+        try:
+            # Process in batches
+            for i in range(0, len(to_process), self.batch_size):
+                batch = to_process[i : i + self.batch_size]
+                tickers_batch = [ticker for ticker, _ in batch]
 
-            # Enrich batch from Yahoo Finance
-            yfinance_data = self.enrich_batch(tickers_batch)
+                # Enrich batch from Yahoo Finance
+                yfinance_data = self.enrich_batch(tickers_batch)
 
-            for ticker, meta in batch:
-                data = yfinance_data.get(ticker, {})
-                if not data:
-                    logger.warning("No YFinance data for ticker %s; skipping", ticker)
-                    skipped += 1
-                    continue
-
-                # Add CIK from SEC mapping
-                data["cik"] = meta.get("cik")
-
-                # Upsert safely
-                try:
-                    result = await self.ai_score_dal.upsert(ticker, data)
-                    if result:
-                        processed += 1
-                    else:
+                for ticker, meta in batch:
+                    data = yfinance_data.get(ticker, {})
+                    if not data:
+                        logger.warning(
+                            "No YFinance data for ticker %s; skipping", ticker
+                        )
                         skipped += 1
-                except Exception as e:
-                    logger.error("Failed to upsert ticker %s: %s", ticker, e)
-                    failed += 1
-                    # rollback is already handled inside upsert
+                        continue
 
-            # Optional wait between batches to avoid hitting rate limits
-            time.sleep(5)
+                    # Add CIK from SEC mapping
+                    data["cik"] = meta.get("cik")
+
+                    # Upsert safely
+                    try:
+                        result = await self.ai_score_dal.upsert(ticker, data)
+                        if result:
+                            processed += 1
+                        else:
+                            skipped += 1
+                    except Exception as e:
+                        logger.error("Failed to upsert ticker %s: %s", ticker, e)
+                        failed += 1
+                        # rollback is already handled inside upsert
+
+                # Optional wait between batches to avoid hitting rate limits
+                time.sleep(5)
+        except YFRateLimitError:
+            logger.critical("Stopping build_universe due to rate limiting.")
+            return processed
 
         logger.info(
             "Universe build complete: processed=%d, skipped=%d, failed=%d",
-            processed, skipped, failed
+            processed,
+            skipped,
+            failed,
         )
         return processed
