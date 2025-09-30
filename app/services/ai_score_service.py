@@ -1,8 +1,9 @@
 from typing import List, Optional
 
+from app.dal.ai_scores import AIScoreDAL
+
 # from app.dal.ai_scores import get_recent_scores, get_score_by_company, insert_score
 from app.models.schemas import AIScoreCreate, AIScoreRead
-from app.dal.ai_scores import AIScoreDAL
 
 
 class AIScoreService:

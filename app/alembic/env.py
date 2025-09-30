@@ -4,6 +4,7 @@ from logging.config import fileConfig
 import yaml
 from alembic import context
 from sqlalchemy import create_engine, engine_from_config, pool
+
 from app.config import settings
 
 sys.path.append(".")  # to import app modules if needed

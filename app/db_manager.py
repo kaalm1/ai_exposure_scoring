@@ -1,13 +1,14 @@
-import logging
-from urllib.parse import urlparse
-import yaml
 import asyncio
+import logging
 import os
+from urllib.parse import urlparse
 
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
-from sqlalchemy import create_engine, text, inspect
+import yaml
 from alembic import command
 from alembic.config import Config
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -86,6 +87,7 @@ class AsyncDatabaseManager:
     async def needs_migration(self) -> bool:
         try:
             async with self.engine.connect() as conn:
+
                 def check_tables(sync_conn):
                     inspector = inspect(sync_conn)
                     return inspector.get_table_names()

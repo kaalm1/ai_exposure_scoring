@@ -1,9 +1,9 @@
 from fastapi import FastAPI
 
-from app.db import engine
-from app.routers import score
-from app.db_manager import AsyncDatabaseManager
 from app.config import settings
+from app.db import engine
+from app.db_manager import AsyncDatabaseManager
+from app.routers import score
 
 app = FastAPI(title="AI Exposure Scoring API", version="0.1.0")
 app.include_router(score.router)

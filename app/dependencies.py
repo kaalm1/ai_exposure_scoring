@@ -1,9 +1,9 @@
 from fastapi import Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dal.ai_scores import AIScoreDAL
-from app.services.ai_score_service import AIScoreService
-from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db_session
+from app.services.ai_score_service import AIScoreService
 
 
 async def get_ai_score_dal(
