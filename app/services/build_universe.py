@@ -1,6 +1,6 @@
 import logging
 import time
-from typing import Optional
+from typing import Literal, Optional
 
 import httpx
 import yfinance as yf
@@ -11,13 +11,26 @@ from app.dal.ai_scores import AIScoreDAL
 logger = logging.getLogger(__name__)
 
 SEC_TICKER_URL = "https://www.sec.gov/files/company_tickers.json"
+NASDAQ_IPO_URL = "https://api.nasdaq.com/api/ipo/calendar"
 
-HEADERS = {
+SEC_HEADERS = {
     "User-Agent": "ai_exposure_scoring/1.0 (joanne.tisch@gmail.com)",
     "Accept-Encoding": "gzip, deflate",
     "Host": "www.sec.gov",
     "Accept": "*/*",
     "Connection": "keep-alive",
+}
+
+NASDAQ_HEADERS = {
+    "authority": "api.nasdaq.com",
+    "accept": "application/json, text/plain, */*",
+    "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.116 Safari/537.36",
+    "origin": "https://www.nasdaq.com",
+    "sec-fetch-site": "same-site",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-dest": "empty",
+    "referer": "https://www.nasdaq.com/",
+    "accept-language": "en-US,en;q=0.9",
 }
 
 
@@ -30,7 +43,7 @@ class UniverseBuilderService:
 
     def fetch_sec_tickers(self) -> dict[str, dict[str, str]]:
         """Fetch ticker -> CIK mapping from SEC."""
-        with httpx.Client(headers=HEADERS, timeout=30) as client:
+        with httpx.Client(headers=SEC_HEADERS, timeout=30) as client:
             resp = client.get(SEC_TICKER_URL)
             resp.raise_for_status()
             data = resp.json()
@@ -43,8 +56,127 @@ class UniverseBuilderService:
                 if ticker:
                     tickers[ticker.upper()] = {"cik": cik, "name": name}
 
-            logger.info(f"Fetched {len(tickers)} tickers")
+            logger.info(f"Fetched {len(tickers)} tickers from SEC")
             return tickers
+
+    def _parse_ipo_row(self, row: dict) -> dict:
+        """
+        Parse a single IPO row and calculate estimated market cap.
+
+        Args:
+            row: Dictionary containing IPO data from NASDAQ API
+
+        Returns:
+            Dictionary with parsed values including estimated market cap
+        """
+        offer_amount_str = row.get("dollarValueOfSharesOffered", "0")
+        shares_offered_str = row.get("sharesOffered", "0")
+        price_str = row.get("proposedSharePrice", "0")
+
+        # Parse values
+        offer_amount = 0
+        shares_offered = 0
+        price = 0.0
+        estimated_market_cap = None
+
+        try:
+            offer_amount = int(offer_amount_str.replace("$", "").replace(",", ""))
+        except (ValueError, AttributeError):
+            pass
+
+        try:
+            shares_offered = int(shares_offered_str.replace(",", ""))
+        except (ValueError, AttributeError):
+            pass
+
+        try:
+            price = float(price_str.replace("$", "").replace(",", ""))
+        except (ValueError, AttributeError):
+            pass
+
+        # Estimate market cap using typical IPO dilution
+        # Most IPOs sell 15-20% of the company; we'll use 18% as a middle estimate
+        if offer_amount > 0:
+            # Assume the IPO represents ~18% of total company value
+            estimated_market_cap = int(offer_amount / 0.18)
+        elif shares_offered > 0 and price > 0:
+            # Alternative calculation if we have shares and price
+            offer_value = shares_offered * price
+            estimated_market_cap = int(offer_value / 0.18)
+
+        return {
+            "name": row.get("companyName"),
+            "exchange": row.get("proposedExchange"),
+            "ipo_date": row.get("pricedDate") or row.get("expectedPriceDate"),
+            "ipo_price": row.get("proposedSharePrice"),
+            "shares_offered": row.get("sharesOffered"),
+            "offer_amount": offer_amount,
+            "estimated_market_cap": estimated_market_cap,
+            "deal_status": row.get("dealStatus"),
+        }
+
+    def fetch_nasdaq_ipo_tickers(
+        self, months_back: int = 0
+    ) -> dict[str, dict[str, str]]:
+        """
+        Fetch IPO tickers from NASDAQ IPO calendar for multiple months.
+
+        Args:
+            months_back: Number of months to go back.
+                        0 = current month only
+                        1 = current month + 1 previous month
+                        2 = current month + 2 previous months, etc.
+
+        Returns:
+            Dictionary mapping ticker to company metadata
+        """
+        from datetime import datetime
+
+        from dateutil.relativedelta import relativedelta
+
+        tickers = {}
+        current_date = datetime.now()
+
+        # Fetch data for each month
+        for i in range(months_back + 1):
+            target_date = current_date - relativedelta(months=i)
+            date_str = target_date.strftime("%Y-%m")
+
+            logger.info(f"Fetching NASDAQ IPO data for {date_str}")
+
+            params = {"date": date_str}
+
+            try:
+                with httpx.Client(headers=NASDAQ_HEADERS, timeout=30) as client:
+                    resp = client.get(NASDAQ_IPO_URL, params=params)
+                    resp.raise_for_status()
+                    data = resp.json()
+
+                    # Extract from priced IPOs
+                    priced_rows = data.get("data", {}).get("priced", {}).get("rows", [])
+                    for row in priced_rows:
+                        ticker = row.get("proposedTickerSymbol")
+                        if ticker and ticker.upper() not in tickers:
+                            tickers[ticker.upper()] = self._parse_ipo_row(row)
+
+                    # Also process filed and withdrawn if available
+                    for status in ["filed", "withdrawn"]:
+                        status_rows = (
+                            data.get("data", {}).get(status, {}).get("rows", [])
+                        )
+                        for row in status_rows:
+                            ticker = row.get("proposedTickerSymbol")
+                            if ticker and ticker.upper() not in tickers:
+                                tickers[ticker.upper()] = self._parse_ipo_row(row)
+
+            except Exception as e:
+                logger.error(f"Failed to fetch NASDAQ IPO data for {date_str}: {e}")
+                continue
+
+        logger.info(
+            f"Fetched {len(tickers)} total tickers from NASDAQ IPO calendar ({months_back + 1} months)"
+        )
+        return tickers
 
     def enrich_batch(self, tickers: list[str]) -> dict[str, dict]:
         """Fetch sector, industry, description and other key fields for multiple tickers using yfinance.Tickers."""
@@ -76,7 +208,7 @@ class UniverseBuilderService:
                     "hq_city": info.get("city"),
                     "hq_state": info.get("state"),
                 }
-            logger.info(f"Fetched {len(info_dict)} tickers")
+            logger.info(f"Fetched {len(info_dict)} tickers from yfinance")
         except YFRateLimitError:
             logger.error("Rate limit hit! Stopping universe build.")
             raise  # bubble up to stop everything
@@ -86,12 +218,35 @@ class UniverseBuilderService:
             )
         return info_dict
 
-    async def build_universe(self, limit: Optional[int] = None) -> int:
+    async def build_universe(
+        self,
+        limit: Optional[int] = None,
+        source: Literal["sec", "nasdaq"] = "sec",
+        nasdaq_months_back: int = 0,
+    ) -> int:
         """
-        Build/refresh the AI universe using SEC + Yahoo Finance in batches.
+        Build/refresh the AI universe using SEC or NASDAQ IPO + Yahoo Finance in batches.
         Each ticker is upserted individually; failures are logged but do not stop the process.
+
+        Args:
+            limit: Optional limit on number of tickers to process
+            source: Data source - either "sec" for SEC filings or "nasdaq" for NASDAQ IPO calendar
+            nasdaq_months_back: Number of months to go back for NASDAQ data (only used if source="nasdaq")
+                               0 = current month only
+                               1 = current month + 1 previous month
+                               2 = current month + 2 previous months, etc.
+
+        Returns:
+            Number of successfully processed tickers
         """
-        sec_tickers = self.fetch_sec_tickers()
+        # Fetch tickers from selected source
+        if source == "sec":
+            source_tickers = self.fetch_sec_tickers()
+        else:  # nasdaq
+            source_tickers = self.fetch_nasdaq_ipo_tickers(
+                months_back=nasdaq_months_back
+            )
+
         processed = 0
         skipped = 0
         failed = 0
@@ -102,7 +257,7 @@ class UniverseBuilderService:
         # Filter out already enriched
         to_process = [
             (ticker, meta)
-            for ticker, meta in sec_tickers.items()
+            for ticker, meta in source_tickers.items()
             if ticker not in enriched_tickers
         ]
 
@@ -110,7 +265,7 @@ class UniverseBuilderService:
         if limit:
             to_process = to_process[:limit]
 
-        logger.info("Processing %d tickers...", len(to_process))
+        logger.info("Processing %d tickers from %s...", len(to_process), source)
 
         try:
             # Process in batches
@@ -130,8 +285,21 @@ class UniverseBuilderService:
                         skipped += 1
                         continue
 
-                    # Add CIK from SEC mapping
-                    data["cik"] = meta.get("cik")
+                    # Add source-specific metadata
+                    if source == "sec":
+                        data["cik"] = meta.get("cik")
+                    else:  # nasdaq
+                        # Use estimated market cap if yfinance doesn't have it
+                        if not data.get("market_cap") and meta.get(
+                            "estimated_market_cap"
+                        ):
+                            data["market_cap"] = meta["estimated_market_cap"]
+
+                        # Add IPO-specific fields
+                        data["ipo_date"] = meta.get("ipo_date")
+                        data["ipo_price"] = meta.get("ipo_price")
+                        data["exchange"] = meta.get("exchange")
+                        data["ipo_offer_amount"] = meta.get("offer_amount")
 
                     # Upsert safely
                     try:
