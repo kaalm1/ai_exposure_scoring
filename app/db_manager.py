@@ -8,6 +8,8 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from alembic.script import ScriptDirectory
+from alembic.runtime.migration import MigrationContext
 
 from app.config import settings
 
@@ -85,21 +87,20 @@ class AsyncDatabaseManager:
             return False
 
     async def needs_migration(self) -> bool:
-        try:
-            async with self.engine.connect() as conn:
+        # Get async connection
+        async with self.engine.connect() as conn:
+            # Get current revision in DB
+            def get_current_revision(sync_conn):
+                context = MigrationContext.configure(sync_conn)
+                return context.get_current_revision()
 
-                def check_tables(sync_conn):
-                    inspector = inspect(sync_conn)
-                    return inspector.get_table_names()
+            current_rev = await conn.run_sync(get_current_revision)
 
-                tables = await conn.run_sync(check_tables)
-                if "alembic_version" not in tables:
-                    logger.info("No alembic_version table found - migrations needed")
-                    return True
-            return False
-        except Exception as e:
-            logger.warning(f"Could not check migration status: {e}")
-            return True
+        # Get head revision from alembic script directory
+        script = ScriptDirectory.from_config(self.alembic_cfg)
+        head_rev = script.get_current_head()
+
+        return current_rev != head_rev
 
     async def run_migrations(self) -> None:
         loop = asyncio.get_event_loop()

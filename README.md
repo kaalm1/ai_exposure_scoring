@@ -29,7 +29,7 @@ The database and user will be auto-created at app startup if they don't exist.
 ### 3. Run the server
 
 ```bash
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload --log-level debug
 ```
 
 Visit: http://localhost:8000
