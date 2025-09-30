@@ -1,7 +1,5 @@
 from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Text, func
-from sqlalchemy.ext.declarative import declarative_base
-
-Base = declarative_base()
+from app.models.base import Base
 
 
 class AIScore(Base):

@@ -1,11 +1,11 @@
 import sys
 from logging.config import fileConfig
 
-import yaml
 from alembic import context
-from sqlalchemy import create_engine, engine_from_config, pool
+from sqlalchemy import create_engine
 
 from app.config import settings
+from app.models.base import Base
 
 sys.path.append(".")  # to import app modules if needed
 
@@ -13,7 +13,7 @@ sys.path.append(".")  # to import app modules if needed
 # Alembic config
 config = context.config
 fileConfig(config.config_file_name)
-target_metadata = None  # we can set if using SQLAlchemy models
+target_metadata = Base.metadata
 
 
 def run_migrations_offline():
@@ -29,7 +29,7 @@ def run_migrations_offline():
 
 
 def run_migrations_online():
-    connectable = create_engine(DATABASE_URL)
+    connectable = create_engine(settings.database_url.replace('+asyncpg', ''))
 
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)

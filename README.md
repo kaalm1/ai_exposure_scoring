@@ -43,7 +43,7 @@ We use Alembic for migrations.
 ### Create a new migration
 
 ```bash
-alembic revision --autogenerate -m "create initial tables"
+alembic  -c app/alembic.ini revision --autogenerate -m "create initial tables"
 ```
 
 This will generate a migration script in `app/alembic/versions/`.
@@ -51,7 +51,7 @@ This will generate a migration script in `app/alembic/versions/`.
 ### Apply migrations
 
 ```bash
-alembic upgrade head
+alembic  -c app/alembic.ini upgrade head
 ```
 
 The application also runs pending migrations automatically on startup.
@@ -59,7 +59,7 @@ The application also runs pending migrations automatically on startup.
 ### Downgrade migrations (undo)
 
 ```bash
-alembic downgrade -1
+alembic  -c app/alembic.ini downgrade -1
 ```
 
 ---
@@ -125,10 +125,10 @@ ai_exposure_scoring/
 
 ```bash
 # Reset to a specific version
-alembic downgrade <revision>
+alembic  -c app/alembic.ini downgrade <revision>
 
 # Re-run migrations
-alembic upgrade head
+alembic -c app/alembic.ini upgrade head
 ```
 
 ---
