@@ -1,8 +1,13 @@
+import logging
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError
+from typing import Optional
 
 from app.models.ai_scores import AIScore
 from app.models.schemas import AIScoreCreate
+
+logger = logging.getLogger(__name__)
 
 
 class AIScoreDAL:
@@ -21,33 +26,42 @@ class AIScoreDAL:
         rows = result.scalars().all()
         return set(rows)
 
-    async def upsert(self, ticker: str, data: dict) -> AIScore:
+    async def upsert(self, ticker: str, data: dict) -> Optional[AIScore]:
         """
         Insert or update an AI Score company.
         Accepts a dict with keys matching column names.
         Ignores keys that are not model attributes.
         """
-        result = await self.session.execute(
-            select(AIScore).where(AIScore.ticker == ticker)
-        )
-        company = result.scalars().first()
+        try:
+            result = await self.session.execute(
+                select(AIScore).where(AIScore.ticker == ticker)
+            )
+            company = result.scalars().first()
 
-        if company:
-            # Update existing fields
-            for key, value in data.items():
-                if hasattr(AIScore, key):
-                    setattr(company, key, value)
-        else:
-            # Filter dict to only valid fields
-            valid_data = {k: v for k, v in data.items() if hasattr(AIScore, k)}
-            valid_data["ticker"] = ticker
-            company = AIScore(**valid_data)
-            self.session.add(company)
+            if company:
+                # Update existing fields
+                for key, value in data.items():
+                    if hasattr(AIScore, key):
+                        setattr(company, key, value)
+            else:
+                if "company_name" not in data or not data["company_name"]:
+                    # Skip insert
+                    return None
+                # Filter dict to only valid fields
+                valid_data = {k: v for k, v in data.items() if hasattr(AIScore, k)}
+                valid_data["ticker"] = ticker
+                company = AIScore(**valid_data)
+                self.session.add(company)
 
-        await self.session.flush()
-        await self.session.commit()  # FINALIZE transaction
-        await self.session.refresh(company)
-        return company
+            await self.session.flush()
+            await self.session.commit()  # FINALIZE transaction
+            await self.session.refresh(company)
+            return company
+
+        except (IntegrityError, SQLAlchemyError) as e:
+            logger.error("Error upserting data for %s: %s", ticker, e)
+            await self.session.rollback()  # rollback only the failed transaction
+            return None
 
     async def insert_score(self, score: AIScoreCreate) -> AIScore:
         obj = AIScore(

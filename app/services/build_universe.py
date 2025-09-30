@@ -1,4 +1,5 @@
 import logging
+from typing import Optional
 import time
 
 import httpx
@@ -81,18 +82,18 @@ class UniverseBuilderService:
             )
         return info_dict
 
-    async def build_universe(self, limit: int | None = None) -> int:
-        """Build/refresh the AI universe using SEC + Yahoo Finance in batches."""
-        logger.info("Starting universe build process...")
-
+    async def build_universe(self, limit: Optional[int] = None) -> int:
+        """
+        Build/refresh the AI universe using SEC + Yahoo Finance in batches.
+        Each ticker is upserted individually; failures are logged but do not stop the process.
+        """
         sec_tickers = self.fetch_sec_tickers()
-        logger.info(f"Fetched {len(sec_tickers)} tickers from SEC")
-
         processed = 0
+        skipped = 0
+        failed = 0
 
         # Get already enriched tickers from DAL
         enriched_tickers = await self.ai_score_dal.get_enriched_tickers()
-        logger.info(f"{len(enriched_tickers)} tickers already enriched, skipping those")
 
         # Filter out already enriched
         to_process = [
@@ -100,49 +101,48 @@ class UniverseBuilderService:
             for ticker, meta in sec_tickers.items()
             if ticker not in enriched_tickers
         ]
-        logger.info(f"{len(to_process)} tickers to process after filtering")
 
         # Apply limit if provided
         if limit:
             to_process = to_process[:limit]
-            logger.info(f"Applying limit: processing first {limit} tickers")
+
+        logger.info("Processing %d tickers...", len(to_process))
 
         # Process in batches
         for i in range(0, len(to_process), self.batch_size):
-            batch = to_process[i : i + self.batch_size]
+            batch = to_process[i: i + self.batch_size]
             tickers_batch = [ticker for ticker, _ in batch]
-            logger.info(f"Processing batch {i // self.batch_size + 1}: {tickers_batch}")
 
-            try:
-                yfinance_data = self.enrich_batch(tickers_batch)
-            except Exception as e:
-                logger.error(
-                    f"Error fetching data from Yahoo Finance for batch {tickers_batch}: {e}"
-                )
-                continue
+            # Enrich batch from Yahoo Finance
+            yfinance_data = self.enrich_batch(tickers_batch)
 
             for ticker, meta in batch:
-                data = yfinance_data.get(ticker)
+                data = yfinance_data.get(ticker, {})
                 if not data:
-                    logger.warning(
-                        f"No data returned from Yahoo Finance for {ticker}, skipping"
-                    )
+                    logger.warning("No YFinance data for ticker %s; skipping", ticker)
+                    skipped += 1
                     continue
 
                 # Add CIK from SEC mapping
-                data["cik"] = meta["cik"]
+                data["cik"] = meta.get("cik")
 
-                # Upsert using the DAL
+                # Upsert safely
                 try:
-                    await self.ai_score_dal.upsert(ticker, data)
-                    processed += 1
-                    logger.info(f"Processed {ticker} successfully")
+                    result = await self.ai_score_dal.upsert(ticker, data)
+                    if result:
+                        processed += 1
+                    else:
+                        skipped += 1
                 except Exception as e:
-                    logger.error(f"Error upserting data for {ticker}: {e}")
+                    logger.error("Failed to upsert ticker %s: %s", ticker, e)
+                    failed += 1
+                    # rollback is already handled inside upsert
 
             # Optional wait between batches to avoid hitting rate limits
-            logger.debug("Sleeping for 5 seconds between batches")
             time.sleep(5)
 
-        logger.info(f"Universe build complete, total tickers processed: {processed}")
+        logger.info(
+            "Universe build complete: processed=%d, skipped=%d, failed=%d",
+            processed, skipped, failed
+        )
         return processed
