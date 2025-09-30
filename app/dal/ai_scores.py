@@ -40,6 +40,7 @@ class AIScoreDAL:
         else:
             # Filter dict to only valid fields
             valid_data = {k: v for k, v in data.items() if hasattr(AIScore, k)}
+            valid_data["ticker"] = ticker
             company = AIScore(**valid_data)
             self.session.add(company)
 

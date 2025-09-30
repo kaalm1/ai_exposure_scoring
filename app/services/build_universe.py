@@ -109,20 +109,24 @@ class UniverseBuilderService:
 
         # Process in batches
         for i in range(0, len(to_process), self.batch_size):
-            batch = to_process[i: i + self.batch_size]
+            batch = to_process[i : i + self.batch_size]
             tickers_batch = [ticker for ticker, _ in batch]
             logger.info(f"Processing batch {i // self.batch_size + 1}: {tickers_batch}")
 
             try:
                 yfinance_data = self.enrich_batch(tickers_batch)
             except Exception as e:
-                logger.error(f"Error fetching data from Yahoo Finance for batch {tickers_batch}: {e}")
+                logger.error(
+                    f"Error fetching data from Yahoo Finance for batch {tickers_batch}: {e}"
+                )
                 continue
 
             for ticker, meta in batch:
                 data = yfinance_data.get(ticker)
                 if not data:
-                    logger.warning(f"No data returned from Yahoo Finance for {ticker}, skipping")
+                    logger.warning(
+                        f"No data returned from Yahoo Finance for {ticker}, skipping"
+                    )
                     continue
 
                 # Add CIK from SEC mapping

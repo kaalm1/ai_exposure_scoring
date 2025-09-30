@@ -6,7 +6,9 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # Required env variables (from .env)
-    database_url: str = 'postgresql+asyncpg://username:password@localhost:5432/ai_exposure'
+    database_url: str = (
+        "postgresql+asyncpg://username:password@localhost:5432/ai_exposure"
+    )
     openai_api_key: str = "default"
     llm_model: str = "gpt-4.1"
 
