@@ -1,23 +1,18 @@
-from contextlib import asynccontextmanager
+from fastapi import Depends
 
 from app.dal.ai_scores import AIScoreDAL
-from app.db import async_session_factory
+from app.services.ai_score_service import AIScoreService
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.db import get_db_session
 
 
-@asynccontextmanager
-async def get_session():
-    """Provide a transactional scope around a series of operations."""
-    async with async_session_factory() as session:
-        try:
-            yield session
-            await session.commit()
-        except:
-            await session.rollback()
-            raise
+async def get_ai_score_dal(
+    session: AsyncSession = Depends(get_db_session),
+) -> AIScoreDAL:
+    return AIScoreDAL(session)
 
 
-@asynccontextmanager
-async def get_ai_score_dal():
-    """Provide an AIScoreDAL with session context."""
-    async with get_session() as session:
-        yield AIScoreDAL(session)
+async def get_ai_score_service(
+    dal: AIScoreDAL = Depends(get_ai_score_dal),
+) -> AIScoreService:
+    return AIScoreService(dal)

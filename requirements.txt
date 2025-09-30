@@ -11,3 +11,5 @@ asyncpg
 python-dotenv
 yfinance
 redis
+pydantic-settings
+greenlet

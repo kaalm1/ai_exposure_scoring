@@ -1,7 +1,8 @@
 from typing import List, Optional
 
-from app.dal.ai_scores import get_recent_scores, get_score_by_company, insert_score
+# from app.dal.ai_scores import get_recent_scores, get_score_by_company, insert_score
 from app.models.schemas import AIScoreCreate, AIScoreRead
+from app.dal.ai_scores import AIScoreDAL
 
 
 class AIScoreService:
@@ -10,8 +11,10 @@ class AIScoreService:
     Encapsulates business logic and DAL calls.
     """
 
-    @staticmethod
-    async def submit_score(result: dict, ticker: Optional[str] = None) -> None:
+    def __init__(self, dal: AIScoreDAL):
+        self.dal = dal
+
+    async def submit_score(self, result: dict, ticker: Optional[str] = None) -> None:
         """
         Converts LLM result dict into AIScoreCreate and saves via DAL.
         Expects `result` to contain 'company', 'scores', 'reasoning', 'final_score'.
@@ -29,20 +32,18 @@ class AIScoreService:
             reasoning_research_focus=result["reasoning"]["research_focus"],
             reasoning_partnership=result["reasoning"]["partnership"],
         )
-        await insert_score(score_obj)
+        await self.dal.insert_score(score_obj)
 
-    @staticmethod
-    async def get_recent_scores(limit: int = 100) -> List[AIScoreRead]:
+    async def get_recent_scores(self, limit: int = 100) -> List[AIScoreRead]:
         """
         Returns recent AI scores.
         """
-        rows = await get_recent_scores(limit)
+        rows = await self.dal.get_recent_scores(limit)
         return [AIScoreRead(**row) for row in rows]
 
-    @staticmethod
-    async def get_scores_by_company(company_name: str) -> List[AIScoreRead]:
+    async def get_scores_by_company(self, company_name: str) -> List[AIScoreRead]:
         """
         Returns scores for a specific company.
         """
-        rows = await get_score_by_company(company_name)
+        rows = await self.dal.get_score_by_company(company_name)
         return [AIScoreRead(**row) for row in rows]

@@ -1,20 +1,24 @@
 from fastapi import FastAPI
 
-from app.db import database
+from app.db import engine
 from app.routers import score
+from app.db_manager import AsyncDatabaseManager
+from app.config import settings
 
 app = FastAPI(title="AI Exposure Scoring API", version="0.1.0")
 app.include_router(score.router)
+db_manager = AsyncDatabaseManager()
 
 
 @app.on_event("startup")
 async def startup():
-    await database.connect()
+    # Initialize database on startup
+    await db_manager.initialize_database()
 
 
 @app.on_event("shutdown")
 async def shutdown():
-    await database.disconnect()
+    await db_manager.dispose()
 
 
 @app.get("/")

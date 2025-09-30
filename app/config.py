@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import yaml
-from pydantic import BaseSettings
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -10,7 +10,16 @@ class Settings(BaseSettings):
     openai_api_key: str = "default"
     llm_model: str = "gpt-4.1"
 
-    # All other YAML keys
+    openai_model: str | None = None
+    openrouter_api_key: str | None = None
+    openrouter_model: str | None = None
+    groq_api_key: str | None = None
+    groq_model: str | None = None
+    google_studio_api_key: str | None = None
+    google_studio_model: str | None = None
+    cerebras_api_key: str | None = None
+    cerebras_model: str | None = None
+
     extra_config: dict = {}
 
     class Config:
