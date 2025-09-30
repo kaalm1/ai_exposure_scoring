@@ -1,8 +1,9 @@
+import logging
+
 from fastapi import FastAPI
 
 from app.db_manager import AsyncDatabaseManager
 from app.routers import score
-import logging
 
 # Configure root logger
 logging.basicConfig(
