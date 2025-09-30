@@ -1,9 +1,12 @@
+import logging
 import time
 
 import httpx
 import yfinance as yf
 
 from app.dal.ai_scores import AIScoreDAL
+
+logger = logging.getLogger(__name__)
 
 SEC_TICKER_URL = "https://www.sec.gov/files/company_tickers.json"
 
@@ -61,7 +64,9 @@ class UniverseBuilderService:
                     "hq_state": info.get("state"),
                 }
         except Exception:
-            pass  # optionally log errors
+            logger.exception(
+                "Failed to fetch yfinance.Tickers", extra={"tickers": tickers}
+            )
         return info_dict
 
     def build_universe(self, limit: int | None = None) -> int:
