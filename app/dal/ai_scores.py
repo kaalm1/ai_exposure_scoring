@@ -44,6 +44,8 @@ class AIScoreDAL:
             self.session.add(company)
 
         await self.session.flush()
+        await self.session.commit()  # FINALIZE transaction
+        await self.session.refresh(company)
         return company
 
     async def insert_score(self, score: AIScoreCreate) -> AIScore:

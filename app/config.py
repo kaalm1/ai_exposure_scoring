@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # Required env variables (from .env)
-    database_url: str
+    database_url: str = 'postgresql+asyncpg://username:password@localhost:5432/ai_exposure'
     openai_api_key: str = "default"
     llm_model: str = "gpt-4.1"
 
@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     extra_config: dict = {}
 
     class Config:
-        env_file = ".env"
+        env_file = str(Path(__file__).parent.parent / ".env")  # project root
         env_file_encoding = "utf-8"
 
 
