@@ -1,4 +1,5 @@
 from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Text, func
+from sqlalchemy.orm import relationship
 
 from app.models.base import Base
 
@@ -50,6 +51,13 @@ class AIScore(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    filing_summary = relationship(
+        "FilingSummary", back_populates="ai_score", uselist=False
+    )
+    chunk_summaries = relationship(
+        "ChunkSummary", back_populates="ai_score", cascade="all, delete-orphan"
     )
 
     def __repr__(self):

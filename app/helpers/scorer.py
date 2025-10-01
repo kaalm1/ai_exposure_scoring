@@ -1,11 +1,11 @@
+# app/services/sec_filing/scorer.py
+
 import json
+from typing import Optional
 
 from app.services.llm import llm_client
 
-from .filing_processor import process_filing
-from .sec_fetcher import fetch_latest_filing_text, get_cik_from_ticker
-
-SYSTEM_PROMPT = """
+SCORING_SYSTEM_PROMPT = """
 You are an expert financial analyst. 
 Score companies on AI exposure using this rubric.
 
@@ -36,7 +36,7 @@ Final Score = (0.4*core_dependence + 0.25*revenue_from_ai +
 Always return valid JSON, no extra commentary.
 """
 
-SCHEMA = {
+SCORING_SCHEMA = {
     "type": "object",
     "properties": {
         "company": {"type": "string"},
@@ -80,44 +80,33 @@ SCHEMA = {
 }
 
 
-async def score_company(company_name: str, ticker: str | None = None) -> dict:
+async def score_company(
+    company_name: str,
+    summary: str,
+    ticker: Optional[str] = None,
+) -> dict:
     """
-    Score a company on AI exposure.
-    Returns structured JSON with individual scores, reasoning, and final_score.
-    """
-    filing_summary = ""
-    if ticker:
-        cik = get_cik_from_ticker(ticker)
-        raw_filing = fetch_latest_filing_text(cik)
-        filing_summary = await process_filing(raw_filing)
+    Score a company based on AI exposure from filing summary.
 
+    Args:
+        company_name: Name of the company
+        summary: AI-related summary from SEC filings
+        ticker: Stock ticker (optional)
+
+    Returns:
+        dict with scoring results including scores, reasoning, and final_score
+    """
     user_prompt = f"""
 Company: {company_name}
 Ticker: {ticker or 'N/A'}
-Context (AI-related summary from filings): {filing_summary}
+Context (AI-related summary from filings): {summary}
 
 Return JSON exactly as instructed in the system prompt.
 """
 
-    # response = await llm_client.client.chat.completions.create(
-    #     model=settings.llm_model,
-    #     messages=[
-    #         {"role": "system", "content": SYSTEM_PROMPT},
-    #         {"role": "user", "content": user_prompt},
-    #     ],
-    #     temperature=0,
-    #     response_format={
-    #         "type": "json_schema",
-    #         "json_schema": {
-    #             "name": "ai_score_response",
-    #             "schema": SCHEMA,
-    #         },
-    #     },
-    # )
-
     response = await llm_client.create_completion(
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": SCORING_SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ],
         temperature=0,
@@ -125,13 +114,18 @@ Return JSON exactly as instructed in the system prompt.
             "type": "json_schema",
             "json_schema": {
                 "name": "ai_score_response",
-                "schema": SCHEMA,
+                "schema": SCORING_SCHEMA,
             },
         },
     )
 
     try:
         result = json.loads(response.choices[0].message.content)
-    except Exception:
-        result = {"error": "Invalid JSON", "raw": response.choices[0].message.content}
+    except Exception as e:
+        result = {
+            "error": "Invalid JSON",
+            "raw": response.choices[0].message.content,
+            "exception": str(e),
+        }
+
     return result

@@ -13,3 +13,4 @@ yfinance
 redis
 pydantic-settings
 greenlet
+bs4

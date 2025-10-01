@@ -1,5 +1,5 @@
 import logging
-from typing import Optional
+from typing import List, Optional
 
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -88,8 +88,28 @@ class AIScoreDAL:
         )
         return result.scalars().all()
 
-    async def get_score_by_company(self, company_name: str) -> list[AIScore]:
-        result = await self.session.execute(
-            select(AIScore).where(AIScore.company_name == company_name)
-        )
+    async def get_score(
+        self,
+        *,
+        cik: Optional[str] = None,
+        company_name: Optional[str] = None,
+        ticker: Optional[str] = None,
+    ) -> List[AIScore]:
+        """
+        Fetch AIScore(s) by cik, company_name, or ticker.
+        At least one argument must be provided.
+        """
+        if not any([cik, company_name, ticker]):
+            raise ValueError("Must provide at least one of: cik, company_name, ticker")
+
+        filters = []
+        if cik:
+            filters.append(AIScore.cik == cik)
+        if company_name:
+            filters.append(AIScore.company_name == company_name)
+        if ticker:
+            filters.append(AIScore.ticker == ticker)
+
+        stmt = select(AIScore).where(or_(*filters))
+        result = await self.session.execute(stmt)
         return result.scalars().all()
