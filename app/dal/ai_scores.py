@@ -6,7 +6,6 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.ai_scores import AIScore
-from app.models.schemas import AIScoreCreate
 
 logger = logging.getLogger(__name__)
 
@@ -64,23 +63,47 @@ class AIScoreDAL:
             await self.session.rollback()  # rollback only the failed transaction
             return None
 
-    async def insert_score(self, score: AIScoreCreate) -> AIScore:
-        obj = AIScore(
-            company_name=score.company_name,
-            ticker=score.ticker,
-            pure_play_score=score.pure_play_score,
-            product_integration_score=score.product_integration_score,
-            research_focus_score=score.research_focus_score,
-            partnership_score=score.partnership_score,
-            final_score=score.final_score,
-            reasoning_pure_play=score.reasoning_pure_play,
-            reasoning_product_integration=score.reasoning_product_integration,
-            reasoning_research_focus=score.reasoning_research_focus,
-            reasoning_partnership=score.reasoning_partnership,
-        )
-        self.session.add(obj)
-        await self.session.flush()  # get obj.id before commit
-        return obj
+    async def upsert_model(self, ai_score: AIScore) -> Optional[AIScore]:
+        """
+        Insert or update an AI Score company.
+        Accepts an AIScore model instance.
+        """
+        try:
+            # Check if record exists by ticker (business key)
+            result = await self.session.execute(
+                select(AIScore).where(AIScore.ticker == ai_score.ticker)
+            )
+            existing = result.scalars().first()
+
+            if existing:
+                # Update existing record
+                for column in AIScore.__table__.columns:
+                    column_name = column.name
+                    # Skip primary key or auto-generated fields
+                    if column_name not in ["id", "created_at"]:
+                        value = getattr(ai_score, column_name, None)
+                        if value is not None:
+                            setattr(existing, column_name, value)
+                company = existing
+            else:
+                # Insert new record - validate company_name is required
+                if not ai_score.company_name:
+                    logger.warning(
+                        "Skipping insert for %s: missing company_name", ai_score.ticker
+                    )
+                    return None
+
+                self.session.add(ai_score)
+                company = ai_score
+
+            await self.session.commit()
+            await self.session.refresh(company)
+            return company
+
+        except (IntegrityError, SQLAlchemyError) as e:
+            logger.error("Error upserting data for %s: %s", ai_score.ticker, e)
+            await self.session.rollback()
+            return None
 
     async def get_recent_scores(self, limit: int = 100) -> list[AIScore]:
         result = await self.session.execute(

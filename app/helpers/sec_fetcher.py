@@ -67,7 +67,7 @@ async def fetch_latest_filing_info(cik: str) -> dict:
                 resp = await client.get(doc_url)
                 resp.raise_for_status()
 
-                soup = BeautifulSoup(resp.text, 'html.parser')
+                soup = BeautifulSoup(resp.text, "html.parser")
                 filing_text = soup.get_text()
 
                 return {

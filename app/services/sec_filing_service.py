@@ -129,7 +129,7 @@ class SECFilingService:
         )
         ai_score_id: int = ai_score_records[0].id
         filing_summary_basic: FilingSummary = (
-            await self.filing_summary_dal.insert_summary(
+            await self.filing_summary_dal.upsert_summary(
                 FilingSummary(cik=cik, ticker=ticker, ai_score_id=ai_score_id)
             )
         )
@@ -150,7 +150,7 @@ class SECFilingService:
             summary=summary_text,
         )
 
-        return await self.filing_summary_dal.insert_summary(filing_summary)
+        return await self.filing_summary_dal.upsert_summary(filing_summary)
 
     async def _save_score(
         self,
@@ -169,7 +169,7 @@ class SECFilingService:
             cik: Company CIK
         """
         # Map new scoring schema to existing AIScore model fields
-        score_obj = AIScoreCreate(
+        score_obj = AIScore(
             company_name=score_result["company"],
             ticker=ticker,
             cik=cik,
@@ -186,7 +186,7 @@ class SECFilingService:
             reasoning_partnership=score_result["reasoning"]["ecosystem_dependence"],
         )
 
-        await self.ai_score_dal.insert_score(score_obj)
+        await self.ai_score_dal.upsert_model(score_obj)
 
     async def get_cached_summary(
         self,
