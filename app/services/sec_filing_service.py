@@ -1,6 +1,7 @@
 # app/services/sec_filing/sec_filing_service.py
-
+import logging
 from typing import List, Optional
+import asyncio
 
 from app.dal.ai_scores import AIScoreDAL
 from app.dal.chunk_summary import ChunkSummaryDAL
@@ -15,6 +16,8 @@ from app.helpers.summarizer import summarize_chunk
 from app.models.ai_scores import AIScore
 from app.models.chunk_summary import ChunkSummary
 from app.models.filing_summary import FilingSummary
+
+logger = logging.getLogger(__name__)
 
 AI_RELEVANT_SECTORS = {
     "Technology",
@@ -141,6 +144,81 @@ class SECFilingService:
         self.ai_score_dal = ai_score_dal
         self.filing_summary_dal = filing_summary_dal
         self.chunk_summary_dal = chunk_summary_dal
+
+    async def process_filtered_companies(
+            self,
+            batch_size: int = 10,
+            delay_seconds: float = 1.0,
+            limit: Optional[int] = None,
+    ) -> dict:
+        """
+        Process and score all companies where filter_decision is False.
+
+        Args:
+            batch_size: Number of companies to process before reporting progress
+            delay_seconds: Delay between processing companies (rate limiting)
+            limit: Number of companies to process before exiting
+
+        Returns:
+            dict with processing results
+        """
+
+        all_scores: list[AIScore] = await self.ai_score_dal.get_all_scores()
+        filtered_companies = [s for s in all_scores if s.filter_decision is False]
+
+        results = {
+            "total_attempted": len(filtered_companies),
+            "successful": 0,
+            "failed": 0,
+            "already_processed": 0,
+            "errors": []
+        }
+
+        logger.info(f"Found {len(filtered_companies)} companies that passed filters")
+
+        for i, score in enumerate(filtered_companies, 1):
+            try:
+                if score.final_score is not None:
+                    logger.debug(f"[{i}/{len(filtered_companies)}] {score.ticker} - Already processed")
+                    results["already_processed"] += 1
+                    continue
+
+                logger.info(f"[{i}/{len(filtered_companies)}] Processing {score.ticker} ({score.company_name})")
+
+                score_result = await self.process_and_score_company(
+                    company_name=score.company_name,
+                    ticker=score.ticker,
+                    cik=score.cik,
+                    force_refresh=False,
+                )
+
+                if "error" in score_result:
+                    logger.error(f"{score.ticker} failed: {score_result.get('error')}")
+                    results["failed"] += 1
+                    results["errors"].append({"ticker": score.ticker, "error": str(score_result.get("error"))})
+                else:
+                    logger.info(f"{score.ticker} success - Score: {score_result['final_score']:.2f}")
+                    results["successful"] += 1
+
+                if delay_seconds > 0 and i < len(filtered_companies):
+                    await asyncio.sleep(delay_seconds)
+
+                if i % batch_size == 0:
+                    logger.info(
+                        f"Progress: {i}/{len(filtered_companies)} | Success: {results['successful']} | Failed: {results['failed']}")
+
+            except Exception as e:
+                logger.exception(f"{score.ticker} unexpected error: {e}")
+                results["failed"] += 1
+                results["errors"].append({"ticker": score.ticker, "error": str(e)})
+
+            if limit and results["successful"] + results["failed"] >= limit:
+                break
+
+        logger.info(f"Complete - Total: {results['total_attempted']} | Success: {results['successful']} | "
+                    f"Failed: {results['failed']} | Already Processed: {results['already_processed']}")
+
+        return results
 
     async def process_and_score_company(
         self,

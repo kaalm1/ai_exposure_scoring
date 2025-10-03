@@ -24,7 +24,7 @@ class AsyncDatabaseManager:
         here = os.path.dirname(os.path.abspath(__file__))  # app/
         self.alembic_cfg = Config(os.path.join(here, "alembic.ini"))
         self.engine: AsyncEngine = create_async_engine(
-            self.database_url, future=True, echo=True
+            self.database_url, future=True, echo=False
         )
 
     def _get_db_name_from_url(self) -> str:

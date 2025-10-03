@@ -1,5 +1,9 @@
 import logging
 
+
+# Optional: increase verbosity of SQLAlchemy engine logs
+logging.getLogger("sqlalchemy").setLevel(logging.WARNING)
+
 from fastapi import FastAPI
 
 from app.db_manager import AsyncDatabaseManager
@@ -10,10 +14,6 @@ logging.basicConfig(
     level=logging.INFO,  # or DEBUG
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
-
-# Optional: increase verbosity of SQLAlchemy engine logs
-logging.getLogger("sqlalchemy.engine").setLevel(logging.INFO)
-
 # Create logger for this module
 logger = logging.getLogger(__name__)
 

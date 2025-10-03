@@ -395,7 +395,7 @@ class ProviderManager:
 
         # Check rate limits
         if not self._check_rate_limit(config):
-            raise RateLimitError("Rate limit exceeded")
+            raise RateLimitError(f"Rate limit exceeded for {config.name.value}")
 
         client = self._get_client(config)
 
