@@ -9,10 +9,54 @@ SCORING_SYSTEM_PROMPT = """
 You are an expert financial analyst. 
 Score companies on AI exposure using this rubric.
 
+**CRITICAL SCORING PRINCIPLES**:
+1. **Weight by centrality**: A company with "Core" AI involvement and "Substantial" 
+   proportion should score much higher than one with "Experimental" and "Minimal"
+
+2. **Quantitative evidence matters**: Explicit revenue figures, customer counts, 
+   or R&D spending tied to AI should increase scores significantly
+
+3. **Depth over breadth**: One core AI product generating revenue beats ten 
+   vague mentions of "exploring AI capabilities"
+
+4. **Strategic commitment**: Multi-year investments, acquisitions, dedicated teams 
+   signal higher exposure than general statements about "leveraging AI"
+
+5. **Relative importance**: If AI appears in only 5% of the filing, even substantial 
+   capabilities should be scored conservatively
+
+SCORING RUBRIC:
+- **core_dependence** (0-10): Is AI fundamental to their business model?
+  - 0-3: Minimal/no AI dependency
+  - 4-6: AI enhances but isn't required for core operations
+  - 7-10: Company's value proposition relies heavily on AI
+
+- **revenue_from_ai** (0-10): Quantified revenue contribution
+  - 0-3: No clear revenue attribution or "exploring opportunities"
+  - 4-6: AI features in products but revenue not quantified
+  - 7-10: Clear data on AI-driven revenue or customer adoption
+
+- **strategic_investment** (0-10): Resource commitment to AI
+  - 0-3: Generic mentions of innovation
+  - 4-6: Dedicated teams/budget but not quantified
+  - 7-10: Major acquisitions, disclosed R&D spending, patent portfolios
+
+- **ecosystem_dependence** (0-10): Reliance on AI infrastructure/platforms
+  - 0-3: No significant dependencies
+  - 4-6: Uses AI tools/platforms from others
+  - 7-10: Core supplier to AI ecosystem or depends on AI platforms
+
+- **market_perception** (0-10): How is company positioned re: AI?
+  - 0-3: Not associated with AI in market positioning
+  - 4-6: Mentions AI in product marketing
+  - 7-10: Known as AI-first company or AI market leader
+
 Return a JSON object **exactly in this structure**:
 
 {
   "company": "Company Name",
+  "ai_proportion": "Minimal/Moderate/Substantial/Core",
+  "business_role": "Core/Supporting/Experimental",
   "scores": {
     "core_dependence": float,          # 0-10
     "revenue_from_ai": float,          # 0-10
@@ -21,11 +65,11 @@ Return a JSON object **exactly in this structure**:
     "market_perception": float          # 0-10
   },
   "reasoning": {
-    "core_dependence": "Reasoning text",
-    "revenue_from_ai": "Reasoning text",
-    "strategic_investment": "Reasoning text",
-    "ecosystem_dependence": "Reasoning text",
-    "market_perception": "Reasoning text"
+    "core_dependence": "Reasoning text - cite specific evidence from filing",
+    "revenue_from_ai": "Reasoning text - cite specific evidence from filing",
+    "strategic_investment": "Reasoning text - cite specific evidence from filing",
+    "ecosystem_dependence": "Reasoning text - cite specific evidence from filing",
+    "market_perception": "Reasoning text - cite specific evidence from filing"
   },
   "final_score": float
 }
@@ -33,6 +77,7 @@ Return a JSON object **exactly in this structure**:
 Final Score = (0.4*core_dependence + 0.25*revenue_from_ai + 
                0.2*strategic_investment + 0.1*ecosystem_dependence + 
                0.05*market_perception)
+
 Always return valid JSON, no extra commentary.
 """
 
@@ -40,14 +85,22 @@ SCORING_SCHEMA = {
     "type": "object",
     "properties": {
         "company": {"type": "string"},
+        "ai_proportion": {
+            "type": "string",
+            "enum": ["Minimal", "Moderate", "Substantial", "Core"],
+        },
+        "business_role": {
+            "type": "string",
+            "enum": ["Core", "Supporting", "Experimental"],
+        },
         "scores": {
             "type": "object",
             "properties": {
-                "core_dependence": {"type": "number"},
-                "revenue_from_ai": {"type": "number"},
-                "strategic_investment": {"type": "number"},
-                "ecosystem_dependence": {"type": "number"},
-                "market_perception": {"type": "number"},
+                "core_dependence": {"type": "number", "minimum": 0, "maximum": 10},
+                "revenue_from_ai": {"type": "number", "minimum": 0, "maximum": 10},
+                "strategic_investment": {"type": "number", "minimum": 0, "maximum": 10},
+                "ecosystem_dependence": {"type": "number", "minimum": 0, "maximum": 10},
+                "market_perception": {"type": "number", "minimum": 0, "maximum": 10},
             },
             "required": [
                 "core_dependence",
@@ -76,7 +129,14 @@ SCORING_SCHEMA = {
         },
         "final_score": {"type": "number"},
     },
-    "required": ["company", "scores", "reasoning", "final_score"],
+    "required": [
+        "company",
+        "ai_proportion",
+        "business_role",
+        "scores",
+        "reasoning",
+        "final_score",
+    ],
 }
 
 

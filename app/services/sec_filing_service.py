@@ -287,6 +287,9 @@ class SECFilingService:
             reasoning_product_integration=score_result["reasoning"]["revenue_from_ai"],
             reasoning_research_focus=score_result["reasoning"]["strategic_investment"],
             reasoning_partnership=score_result["reasoning"]["ecosystem_dependence"],
+            ai_proportion=score_result["ai_proportion"],
+            business_role=score_result["business_role"],
+
         )
 
         await self.ai_score_dal.upsert_model(score_obj)
