@@ -15,7 +15,110 @@ from app.helpers.summarizer import summarize_chunk
 from app.models.ai_scores import AIScore
 from app.models.chunk_summary import ChunkSummary
 from app.models.filing_summary import FilingSummary
-from app.models.schemas import AIScoreCreate
+
+AI_RELEVANT_SECTORS = {
+    "Technology",
+    "Communication Services",
+    "Industrials",
+    "Healthcare",
+    "Consumer Cyclical",
+}
+
+OPTIONAL_SECTORS = {
+    "Financial Services",
+    "Energy",
+}
+
+# Highly relevant to AI
+AI_RELEVANT_INDUSTRIES = {
+    "Software - Infrastructure",
+    "Software - Application",
+    "Computer Hardware",
+    "Semiconductors",
+    "Semiconductor Equipment & Materials",
+    "Communication Equipment",
+    "Information Technology Services",
+    "Internet Content & Information",
+    "Electronic Gaming & Multimedia",
+    "Consulting Services",
+    "Consumer Electronics",
+    "Scientific & Technical Instruments",
+    "Biotechnology",
+    "Diagnostics & Research",
+    "Health Information Services",
+}
+
+# Industries that may have AI components but aren't primarily AI-focused
+OPTIONAL_INDUSTRIES = {
+    "Electronic Components",
+    "Medical Devices",
+    "Medical Instruments & Supplies",
+    "Auto Manufacturers",
+    "Aerospace & Defense",
+    "Specialty Industrial Machinery",
+    "Drug Manufacturers - General",
+    "Telecom Services",
+    "Medical Care Facilities",
+    "Electrical Equipment & Parts",
+    "Internet Retail",
+    "Healthcare Plans",
+    "Farm & Heavy Construction Machinery",
+    "Specialty Business Services",
+    "Security & Protection Services",
+}
+
+US_STATES = {
+    "AL",
+    "AK",
+    "AZ",
+    "AR",
+    "CA",
+    "CO",
+    "CT",
+    "DE",
+    "FL",
+    "GA",
+    "HI",
+    "ID",
+    "IL",
+    "IN",
+    "IA",
+    "KS",
+    "KY",
+    "LA",
+    "ME",
+    "MD",
+    "MA",
+    "MI",
+    "MN",
+    "MS",
+    "MO",
+    "MT",
+    "NE",
+    "NV",
+    "NH",
+    "NJ",
+    "NM",
+    "NY",
+    "NC",
+    "ND",
+    "OH",
+    "OK",
+    "OR",
+    "PA",
+    "RI",
+    "SC",
+    "SD",
+    "TN",
+    "TX",
+    "UT",
+    "VT",
+    "VA",
+    "WA",
+    "WV",
+    "WI",
+    "WY",
+}
 
 
 class SECFilingService:
@@ -254,3 +357,54 @@ class SECFilingService:
         final_summary = await summarize_chunk(combined)
 
         return final_summary
+
+    async def update_filter_decisions(self) -> None:
+        """
+        Update filter_decision + filter_reason for all companies in ai_scores
+        using sector, industry, market cap, and HQ state rules.
+        """
+        all_scores: list[AIScore] = await self.ai_score_dal.get_all_scores()
+
+        for score in all_scores:
+            reasons = []
+
+            # --- Sector filter ---
+            sector = (score.sector or "").strip()
+            if not sector:
+                reasons.append("No sector provided")
+            elif sector in AI_RELEVANT_SECTORS:
+                pass  # keep
+            elif sector in OPTIONAL_SECTORS:
+                reasons.append(f"Sector '{sector}' is optional")
+            else:
+                reasons.append(f"Sector '{sector}' not AI-relevant")
+
+            # --- Industry filter ---
+            industry = (score.industry or "").strip()
+            if not industry:
+                reasons.append("No industry provided")
+            elif industry in AI_RELEVANT_INDUSTRIES:
+                pass  # keep
+            elif industry in OPTIONAL_INDUSTRIES:
+                reasons.append(f"Industry '{industry}' is optional")
+            else:
+                reasons.append(f"Industry '{industry}' not AI-relevant")
+
+            # --- Market cap filter ---
+            if score.market_cap is None or score.market_cap < 500_000_000:
+                reasons.append(f"Market cap below $500M (value={score.market_cap})")
+
+            # --- HQ state filter ---
+            state = (score.hq_state or "").strip().upper()
+            if not state or state not in US_STATES:
+                reasons.append(f"HQ state '{state}' not in US states list")
+
+            # --- Final decision ---
+            if reasons:
+                score.filter_decision = True
+                score.filter_reason = "; ".join(reasons)
+            else:
+                score.filter_decision = False
+                score.filter_reason = "Passes all filters"
+
+            await self.ai_score_dal.upsert_model(score)

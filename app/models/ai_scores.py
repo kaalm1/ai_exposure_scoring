@@ -32,6 +32,7 @@ class AIScore(Base):
     hq_state = Column(String, nullable=True)
 
     # Filtering decision (before scoring)
+    # True means that it should be filtered out
     filter_decision = Column(Boolean, default=True, index=True)
     filter_reason = Column(Text, nullable=True)
 

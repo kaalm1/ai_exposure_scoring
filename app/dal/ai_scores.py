@@ -16,6 +16,10 @@ class AIScoreDAL:
     def __init__(self, session: AsyncSession):
         self.session = session
 
+    async def get_all_scores(self) -> list[AIScore]:
+        result = await self.session.execute(select(AIScore))
+        return result.scalars().all()
+
     async def get_enriched_tickers(self) -> set[str]:
         """Return a set of tickers that already have sector/industry filled."""
         result = await self.session.execute(
