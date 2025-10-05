@@ -3,12 +3,11 @@ import logging
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
 from enum import Enum
 from threading import Lock
 from typing import Any, Dict, List, Optional, Tuple
 
-from openai import APIError, AsyncOpenAI, RateLimitError
+from openai import AsyncOpenAI, RateLimitError
 
 from app.config import settings
 
@@ -407,30 +406,31 @@ class ProviderManager:
             # Increment usage before making request
             self._increment_usage(config)
 
-            logger.info(
-                f"Making request to {config.name.value} with model {kwargs['model']}"
-            )
+            # logger.info(
+            #     f"Making request to {config.name.value} with model {kwargs['model']}"
+            # )
             response = await client.chat.completions.create(**kwargs)
 
-            logger.info(f"Successfully received response from {config.name.value}")
+            # logger.info(f"Successfully received response from {config.name.value}")
             return response
 
         except RateLimitError as e:
             logger.warning(f"{config.name.value} rate limit hit: {e}")
             self._mark_provider_failed(config, duration=60)
             raise
-        except APIError as e:
-            if e.status_code == 429:  # Rate limit
-                logger.warning(f"{config.name.value} returned 429: {e}")
-                self._mark_provider_failed(config, duration=60)
-            elif e.status_code >= 500:  # Server error
-                logger.error(f"{config.name.value} server error: {e}")
-                self._mark_provider_failed(config, duration=300)
-            else:
-                logger.error(f"{config.name.value} API error: {e}")
-            raise
         except Exception as e:
-            logger.error(f"{config.name.value} unexpected error: {e}")
+            # Check if it's an API error with status code
+            if hasattr(e, 'status_code'):
+                if e.status_code == 429:  # Rate limit
+                    logger.warning(f"{config.name.value} returned 429: {e}")
+                    self._mark_provider_failed(config, duration=60)
+                elif e.status_code >= 500:  # Server error
+                    logger.error(f"{config.name.value} server error: {e}")
+                    self._mark_provider_failed(config, duration=300)
+                else:
+                    logger.error(f"{config.name.value} API error: {e}")
+            else:
+                logger.error(f"{config.name.value} unexpected error: {e}")
             raise
 
     async def create_completion(self, **kwargs) -> Any:

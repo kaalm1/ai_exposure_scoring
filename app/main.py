@@ -1,8 +1,5 @@
+import app.silence_logs  # isort:skip  # noqa
 import logging
-
-
-# Optional: increase verbosity of SQLAlchemy engine logs
-logging.getLogger("sqlalchemy").setLevel(logging.WARNING)
 
 from fastapi import FastAPI
 
