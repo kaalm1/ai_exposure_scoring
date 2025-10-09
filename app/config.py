@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     google_studio_model: str | None = None
     cerebras_api_key: str | None = None
     cerebras_model: str | None = None
+    arli_ai_api_key: str | None = None
+    arli_ai_model: str | None = None
+    nvidia_api_key: str | None = None
+    nvidia_model: str | None = None
 
     extra_config: dict = {}
 

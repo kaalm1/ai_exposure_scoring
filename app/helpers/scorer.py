@@ -1,6 +1,7 @@
 # app/services/sec_filing/scorer.py
 
 import json
+import re
 from typing import Optional
 
 from app.services.llm import llm_client
@@ -51,18 +52,24 @@ SCORING RUBRIC:
   - 4-6: Mentions AI in product marketing
   - 7-10: Known as AI-first company or AI market leader
 
-Return a JSON object **exactly in this structure**:
+**OUTPUT FORMAT**:
+YOU MUST respond with ONLY valid JSON. No markdown code blocks, no explanations, no extra text.
+
+For "ai_proportion", use ONE of: "Minimal", "Moderate", "Substantial", "Core"
+For "business_role", use ONE of: "Core", "Supporting", "Experimental"
+
+Return exactly this structure:
 
 {
   "company": "Company Name",
-  "ai_proportion": "Minimal/Moderate/Substantial/Core",
-  "business_role": "Core/Supporting/Experimental",
+  "ai_proportion": "Minimal",
+  "business_role": "Core",
   "scores": {
-    "core_dependence": float,          # 0-10
-    "revenue_from_ai": float,          # 0-10
-    "strategic_investment": float,     # 0-10
-    "ecosystem_dependence": float,     # 0-10
-    "market_perception": float          # 0-10
+    "core_dependence": 0.0,
+    "revenue_from_ai": 0.0,
+    "strategic_investment": 0.0,
+    "ecosystem_dependence": 0.0,
+    "market_perception": 0.0
   },
   "reasoning": {
     "core_dependence": "Reasoning text - cite specific evidence from filing",
@@ -71,14 +78,14 @@ Return a JSON object **exactly in this structure**:
     "ecosystem_dependence": "Reasoning text - cite specific evidence from filing",
     "market_perception": "Reasoning text - cite specific evidence from filing"
   },
-  "final_score": float
+  "final_score": 0.0
 }
 
 Final Score = (0.4*core_dependence + 0.25*revenue_from_ai + 
                0.2*strategic_investment + 0.1*ecosystem_dependence + 
                0.05*market_perception)
 
-Always return valid JSON, no extra commentary.
+IMPORTANT: Return ONLY the JSON object. No ```json``` markers, no explanations.
 """
 
 SCORING_SCHEMA = {
@@ -140,10 +147,42 @@ SCORING_SCHEMA = {
 }
 
 
+def parse_llm_json(response_text: str) -> dict:
+    """
+    Parse JSON from LLM response, handling markdown blocks and malformed JSON.
+
+    Args:
+        response_text: Raw response from LLM
+
+    Returns:
+        Parsed JSON dict
+
+    Raises:
+        ValueError: If JSON cannot be parsed
+    """
+    # Remove markdown code blocks if present
+    text = re.sub(r"```json\s*|\s*```", "", response_text).strip()
+
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        # Try to extract JSON object from text
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group())
+            except json.JSONDecodeError:
+                pass
+        raise ValueError(
+            f"Failed to parse JSON from response: {e}\nResponse: {response_text[:500]}"
+        )
+
+
 async def score_company(
     company_name: str,
     summary: str,
     ticker: Optional[str] = None,
+    llm_provider: Optional[str] = None,
 ) -> dict:
     """
     Score a company based on AI exposure from filing summary.
@@ -152,40 +191,69 @@ async def score_company(
         company_name: Name of the company
         summary: AI-related summary from SEC filings
         ticker: Stock ticker (optional)
+        llm_provider: Provider to use for LLM (optional, auto-detected if not provided)
 
     Returns:
         dict with scoring results including scores, reasoning, and final_score
     """
+    # Auto-detect provider if not provided
+    if not llm_provider:
+        try:
+            llm_provider = llm_client._manager.providers[
+                llm_client._manager.current_provider_idx
+            ].name.value
+        except (AttributeError, IndexError):
+            llm_provider = "unknown"
+
     user_prompt = f"""
 Company: {company_name}
 Ticker: {ticker or 'N/A'}
 Context (AI-related summary from filings): {summary}
 
-Return JSON exactly as instructed in the system prompt.
+Return JSON exactly as instructed in the system prompt. No markdown, no explanations.
 """
 
-    response = await llm_client.create_completion(
-        messages=[
-            {"role": "system", "content": SCORING_SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
-        ],
-        temperature=0,
-        response_format={
+    # Determine response format based on provider
+    if llm_provider and llm_provider.lower() == "nvidia":
+        # Nvidia only supports json_object, not json_schema
+        response_format = {"type": "json_object"}
+    else:
+        # OpenAI and other providers support json_schema
+        response_format = {
             "type": "json_schema",
             "json_schema": {
                 "name": "ai_score_response",
                 "schema": SCORING_SCHEMA,
             },
-        },
-    )
-
-    try:
-        result = json.loads(response.choices[0].message.content)
-    except Exception as e:
-        result = {
-            "error": "Invalid JSON",
-            "raw": response.choices[0].message.content,
-            "exception": str(e),
         }
 
-    return result
+    try:
+        response = await llm_client.create_completion(
+            messages=[
+                {"role": "system", "content": SCORING_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0,
+            response_format=response_format,
+        )
+
+        result = parse_llm_json(response.choices[0].message.content)
+        return result
+
+    except ValueError as e:
+        # JSON parsing error
+        return {
+            "error": "Invalid JSON",
+            "raw": (
+                response.choices[0].message.content
+                if "response" in locals()
+                else "No response"
+            ),
+            "exception": str(e),
+        }
+    except Exception as e:
+        # Other errors (API errors, etc.)
+        return {
+            "error": "LLM completion failed",
+            "exception": str(e),
+        }

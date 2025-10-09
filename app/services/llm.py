@@ -19,6 +19,8 @@ class Provider(Enum):
     GROQ = "groq"
     GOOGLE_STUDIO = "google_studio"
     CEREBRAS = "cerebras"
+    NVIDIA = "nvidia"
+    ARLI_AI = "arli_ai"
     OPENAI = "openai"
 
 
@@ -300,6 +302,38 @@ class ProviderManager:
                 )
             )
 
+        # Nvidia - Free tier
+        if hasattr(settings, "nvidia_api_key") and settings.nvidia_api_key:
+            providers.append(
+                ProviderConfig(
+                    name=Provider.NVIDIA,
+                    base_url=getattr(
+                        settings,
+                        "nvidia_base_url",
+                        "https://integrate.api.nvidia.com/v1",
+                    ),
+                    api_key=settings.nvidia_api_key,
+                    model=getattr(
+                        settings, "nvidia_model", "deepseek-r1-distill-qwen-32b"
+                    ),
+                )
+            )
+
+        # ArliAI - Free tier
+        if hasattr(settings, "arli_ai_api_key") and settings.arli_ai_api_key:
+            providers.append(
+                ProviderConfig(
+                    name=Provider.ARLI_AI,
+                    base_url=getattr(
+                        settings, "arli_ai_base_url", "https://api.arliai.com/v1"
+                    ),
+                    api_key=settings.arli_ai_api_key,
+                    model=getattr(
+                        settings, "arli_ai_model", "Gemma-3-27B-ArliAI-RPMax-v3"
+                    ),
+                )
+            )
+
         # OpenAI - fallback if configured
         if hasattr(settings, "openai_api_key") and settings.openai_api_key:
             providers.append(
@@ -420,7 +454,7 @@ class ProviderManager:
             raise
         except Exception as e:
             # Check if it's an API error with status code
-            if hasattr(e, 'status_code'):
+            if hasattr(e, "status_code"):
                 if e.status_code == 429:  # Rate limit
                     logger.warning(f"{config.name.value} returned 429: {e}")
                     self._mark_provider_failed(config, duration=60)

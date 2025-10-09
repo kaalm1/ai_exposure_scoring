@@ -1,11 +1,12 @@
 # app/services/sec_filing/sec_filing_service.py
+import asyncio
 import logging
 from typing import List, Optional
-import asyncio
 
 from app.dal.ai_scores import AIScoreDAL
 from app.dal.chunk_summary import ChunkSummaryDAL
 from app.dal.filing_summary import FilingSummaryDAL
+from app.db import get_db_session
 from app.helpers.chunker import chunk_text
 from app.helpers.scorer import score_company
 from app.helpers.sec_fetcher import (
@@ -16,6 +17,7 @@ from app.helpers.summarizer import summarize_chunk
 from app.models.ai_scores import AIScore
 from app.models.chunk_summary import ChunkSummary
 from app.models.filing_summary import FilingSummary
+from app.services.llm import llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -145,14 +147,209 @@ class SECFilingService:
         self.filing_summary_dal = filing_summary_dal
         self.chunk_summary_dal = chunk_summary_dal
 
-    async def process_filtered_companies(
-            self,
-            batch_size: int = 10,
-            delay_seconds: float = 1.0,
-            limit: Optional[int] = None,
+    @staticmethod
+    async def process_single_company_with_new_session(
+        score: AIScore,
+        session_factory,
     ) -> dict:
         """
-        Process and score all companies where filter_decision is False.
+        Static method to process a single company with a fresh session.
+        This allows parallel execution without session conflicts.
+
+        Args:
+            score: AIScore object containing company information
+            session_factory: Async generator that yields database sessions
+
+        Returns:
+            dict with processing result
+        """
+        try:
+            async for session in session_factory():
+                # Create a fresh service instance with new session
+                svc = SECFilingService(
+                    AIScoreDAL(session),
+                    FilingSummaryDAL(session),
+                    ChunkSummaryDAL(session),
+                )
+
+                logger.info(
+                    f"Processing {score.ticker} ({score.company_name}) "
+                    f"with {llm_client._manager.providers[llm_client._manager.current_provider_idx].name.value}"
+                )
+
+                score_result = await svc.process_and_score_company(
+                    company_name=score.company_name,
+                    ticker=score.ticker,
+                    cik=score.cik,
+                    force_refresh=False,
+                )
+
+                if "error" in score_result:
+                    logger.error(f"{score.ticker} failed: {score_result.get('error')}")
+                    return {
+                        "ticker": score.ticker,
+                        "status": "failed",
+                        "error": str(score_result.get("error")),
+                    }
+                else:
+                    logger.info(
+                        f"{score.ticker} success - Score: {score_result['final_score']:.2f}"
+                    )
+                    return {
+                        "ticker": score.ticker,
+                        "status": "success",
+                        "final_score": score_result["final_score"],
+                    }
+
+        except Exception as e:
+            logger.exception(f"{score.ticker} unexpected error: {e}")
+            return {"ticker": score.ticker, "status": "failed", "error": str(e)}
+
+    async def get_filtered_companies(
+        self,
+        limit: Optional[int] = None,
+    ) -> list[AIScore]:
+        """
+        Get all companies where filter_decision is False and not yet processed.
+
+        Args:
+            limit: Maximum number of companies to return
+
+        Returns:
+            List of AIScore objects to process
+        """
+        all_scores: list[AIScore] = await self.ai_score_dal.get_all_scores()
+        filtered_companies = [
+            s
+            for s in all_scores
+            if s.filter_decision is False and s.final_score is None
+        ]
+
+        if limit:
+            filtered_companies = filtered_companies[:limit]
+
+        logger.info(f"Found {len(filtered_companies)} companies to process")
+        return filtered_companies
+
+    async def process_single_company(self, score: AIScore) -> dict:
+        """
+        Process and score a single company.
+
+        Args:
+            score: AIScore object containing company information
+
+        Returns:
+            dict with processing result
+        """
+        try:
+            logger.info(
+                f"Processing {score.ticker} ({score.company_name}) "
+                f"with {llm_client._manager.providers[llm_client._manager.current_provider_idx].name.value}"
+            )
+
+            score_result = await self.process_and_score_company(
+                company_name=score.company_name,
+                ticker=score.ticker,
+                cik=score.cik,
+                force_refresh=False,
+            )
+
+            if "error" in score_result:
+                logger.error(f"{score.ticker} failed: {score_result.get('error')}")
+                return {
+                    "ticker": score.ticker,
+                    "status": "failed",
+                    "error": str(score_result.get("error")),
+                }
+            else:
+                logger.info(
+                    f"{score.ticker} success - Score: {score_result['final_score']:.2f}"
+                )
+                return {
+                    "ticker": score.ticker,
+                    "status": "success",
+                    "final_score": score_result["final_score"],
+                }
+
+        except Exception as e:
+            logger.exception(f"{score.ticker} unexpected error: {e}")
+            return {"ticker": score.ticker, "status": "failed", "error": str(e)}
+
+    async def process_filtered_companies_parallel(
+        self,
+        max_concurrent: int = 5,
+        limit: Optional[int] = None,
+    ) -> dict:
+        """
+        Process and score companies in parallel with concurrency control.
+
+        Args:
+            max_concurrent: Maximum number of companies to process simultaneously
+            limit: Maximum number of companies to process
+
+        Returns:
+            dict with processing results
+        """
+        # Get companies to process
+        filtered_companies = await self.get_filtered_companies(limit=limit)
+
+        results = {
+            "total_attempted": len(filtered_companies),
+            "successful": 0,
+            "failed": 0,
+            "errors": [],
+        }
+
+        if not filtered_companies:
+            logger.info("No companies to process")
+            return results
+
+        # Create semaphore for concurrency control
+        semaphore = asyncio.Semaphore(max_concurrent)
+
+        async def process_with_semaphore(score: AIScore) -> dict:
+            async with semaphore:
+                return await SECFilingService.process_single_company_with_new_session(
+                    score, get_db_session
+                )
+
+        # Process all companies concurrently
+        logger.info(
+            f"Starting parallel processing of {len(filtered_companies)} companies "
+            f"with max concurrency of {max_concurrent}"
+        )
+
+        tasks = [process_with_semaphore(score) for score in filtered_companies]
+        task_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Aggregate results
+        for result in task_results:
+            if isinstance(result, Exception):
+                results["failed"] += 1
+                results["errors"].append({"ticker": "unknown", "error": str(result)})
+            elif result["status"] == "success":
+                results["successful"] += 1
+            else:
+                results["failed"] += 1
+                results["errors"].append(
+                    {"ticker": result["ticker"], "error": result.get("error")}
+                )
+
+        logger.info(
+            f"Complete - Total: {results['total_attempted']} | "
+            f"Success: {results['successful']} | Failed: {results['failed']}"
+        )
+
+        return results
+
+    async def process_filtered_companies(
+        self,
+        batch_size: int = 10,
+        delay_seconds: float = 1.0,
+        limit: Optional[int] = None,
+    ) -> dict:
+        """
+        Process and score companies sequentially (original behavior).
 
         Args:
             batch_size: Number of companies to process before reporting progress
@@ -162,61 +359,39 @@ class SECFilingService:
         Returns:
             dict with processing results
         """
-
-        all_scores: list[AIScore] = await self.ai_score_dal.get_all_scores()
-        filtered_companies = [s for s in all_scores if s.filter_decision is False]
+        filtered_companies = await self.get_filtered_companies(limit=limit)
 
         results = {
             "total_attempted": len(filtered_companies),
             "successful": 0,
             "failed": 0,
-            "already_processed": 0,
-            "errors": []
+            "errors": [],
         }
 
-        logger.info(f"Found {len(filtered_companies)} companies that passed filters")
-
         for i, score in enumerate(filtered_companies, 1):
-            try:
-                if score.final_score is not None:
-                    logger.debug(f"[{i}/{len(filtered_companies)}] {score.ticker} - Already processed")
-                    results["already_processed"] += 1
-                    continue
+            result = await self.process_single_company(score)
 
-                logger.info(f"[{i}/{len(filtered_companies)}] Processing {score.ticker} ({score.company_name})")
-
-                score_result = await self.process_and_score_company(
-                    company_name=score.company_name,
-                    ticker=score.ticker,
-                    cik=score.cik,
-                    force_refresh=False,
+            if result["status"] == "success":
+                results["successful"] += 1
+            else:
+                results["failed"] += 1
+                results["errors"].append(
+                    {"ticker": result["ticker"], "error": result.get("error")}
                 )
 
-                if "error" in score_result:
-                    logger.error(f"{score.ticker} failed: {score_result.get('error')}")
-                    results["failed"] += 1
-                    results["errors"].append({"ticker": score.ticker, "error": str(score_result.get("error"))})
-                else:
-                    logger.info(f"{score.ticker} success - Score: {score_result['final_score']:.2f}")
-                    results["successful"] += 1
+            if delay_seconds > 0 and i < len(filtered_companies):
+                await asyncio.sleep(delay_seconds)
 
-                if delay_seconds > 0 and i < len(filtered_companies):
-                    await asyncio.sleep(delay_seconds)
+            if i % batch_size == 0:
+                logger.info(
+                    f"Progress: {i}/{len(filtered_companies)} | "
+                    f"Success: {results['successful']} | Failed: {results['failed']}"
+                )
 
-                if i % batch_size == 0:
-                    logger.info(
-                        f"Progress: {i}/{len(filtered_companies)} | Success: {results['successful']} | Failed: {results['failed']}")
-
-            except Exception as e:
-                logger.exception(f"{score.ticker} unexpected error: {e}")
-                results["failed"] += 1
-                results["errors"].append({"ticker": score.ticker, "error": str(e)})
-
-            if limit and results["successful"] + results["failed"] >= limit:
-                break
-
-        logger.info(f"Complete - Total: {results['total_attempted']} | Success: {results['successful']} | "
-                    f"Failed: {results['failed']} | Already Processed: {results['already_processed']}")
+        logger.info(
+            f"Complete - Total: {results['total_attempted']} | "
+            f"Success: {results['successful']} | Failed: {results['failed']}"
+        )
 
         return results
 
@@ -367,7 +542,6 @@ class SECFilingService:
             reasoning_partnership=score_result["reasoning"]["ecosystem_dependence"],
             ai_proportion=score_result["ai_proportion"],
             business_role=score_result["business_role"],
-
         )
 
         await self.ai_score_dal.upsert_model(score_obj)
