@@ -27,7 +27,6 @@ class CompanyFinancialAnalyzer:
         self.company_data = {}
         self.most_recent_year = None
         self.use_quarterly = False
-        self.most_recent_quarter = None
 
     def _format_cik(self, cik: str) -> str:
         """Format CIK to 10-digit format required by SEC."""
@@ -82,16 +81,17 @@ class CompanyFinancialAnalyzer:
     def _determine_data_availability(self, facts_data: Dict) -> Dict:
         """
         Determine whether to use annual (10-K) or quarterly (10-Q) data.
-        Returns dict with most recent year/quarter and data type to use.
+        Returns dict with most recent year and data type to use.
         """
         max_annual_year = None
-        max_quarterly_info = {"year": None, "quarter": None, "end_date": None}
+        has_quarterly_data = False
 
         try:
             for taxonomy in facts_data.get("facts", {}).values():
-                for concept_data in taxonomy.values():
+                for concept_name, concept_data in taxonomy.items():
                     units = concept_data.get("units", {})
-                    for unit_type in ["USD", "shares", "pure"]:
+
+                    for unit_type in ["USD"]:
                         if unit_type in units:
                             # Check for annual data
                             for item in units[unit_type]:
@@ -105,51 +105,40 @@ class CompanyFinancialAnalyzer:
                                     ):
                                         max_annual_year = fy
 
-                            # Check for quarterly data (looking for year-to-date entries)
+                            # Check if we have ANY quarterly data (not concept-specific)
                             for item in units[unit_type]:
                                 if item.get("form") in ["10-Q", "10-Q/A"]:
-                                    # Look for year-to-date entries (longer periods)
-                                    start = item.get("start")
-                                    end = item.get("end")
-                                    fp = item.get("fp")
-                                    fy = item.get("fy")
+                                    has_quarterly_data = True
+                                    print(
+                                        f"DEBUG _determine: Found 10-Q data in concept: {concept_name}"
+                                    )
+                                    break
 
-                                    if start and end and fp and fy:
-                                        # Check if this is a year-to-date entry
-                                        if start.startswith(
-                                            f"{fy - 1}"
-                                        ) or start.startswith(f"{fy}"):
-                                            if (
-                                                max_quarterly_info["end_date"] is None
-                                                or end > max_quarterly_info["end_date"]
-                                            ):
-                                                max_quarterly_info = {
-                                                    "year": fy,
-                                                    "quarter": fp,
-                                                    "end_date": end,
-                                                }
-        except (KeyError, TypeError):
-            pass
+                            if has_quarterly_data:
+                                break
 
-        # Decide: use quarterly if no annual data or quarterly is more recent
+                    if has_quarterly_data:
+                        break
+
+                if has_quarterly_data:
+                    break
+
+        except (KeyError, TypeError) as e:
+            print(f"Error in _determine_data_availability: {e}")
+
+        # Decide: use quarterly if no annual data exists
         use_quarterly = False
-        if max_annual_year is None:
+        if max_annual_year is None and has_quarterly_data:
             use_quarterly = True
-            print(f"No 10-K data found. Using 10-Q quarterly data.")
-        elif (
-            max_quarterly_info["year"] and max_quarterly_info["year"] > max_annual_year
-        ):
-            use_quarterly = True
+            print(f"DEBUG _determine: No 10-K data found. Using 10-Q quarterly data.")
+        elif max_annual_year:
             print(
-                f"Quarterly data (FY{max_quarterly_info['year']} {max_quarterly_info['quarter']}) is more recent than annual data (FY{max_annual_year}). Using 10-Q data."
+                f"DEBUG _determine: Using 10-K annual data (most recent: FY{max_annual_year})."
             )
-        else:
-            print(f"Using 10-K annual data (FY{max_annual_year}).")
 
         return {
             "use_quarterly": use_quarterly,
             "most_recent_year": max_annual_year,
-            "most_recent_quarter": max_quarterly_info if use_quarterly else None,
         }
 
     def _extract_concept_values(
@@ -161,8 +150,8 @@ class CompanyFinancialAnalyzer:
     ) -> List[Dict]:
         """
         Extract historical values for a given concept.
-        Uses either annual (10-K) or quarterly (10-Q) data based on availability.
-        Only returns data if recent data is available.
+        Each concept uses its own most recent available data.
+        For quarterly YTD data, finds comparable periods across years.
 
         Returns list of dicts with 'val', 'filed', 'fy', 'end' keys, or empty list if no recent data.
         """
@@ -179,53 +168,151 @@ class CompanyFinancialAnalyzer:
                         # For quarterly data, handle two types:
                         # 1. Income statement items (have start/end dates) - use YTD entries
                         # 2. Balance sheet items (only end date) - use point-in-time snapshots
-                        quarterly_data = []
-                        for item in units[unit_type]:
-                            if item.get("form") in ["10-Q", "10-Q/A"]:
+
+                        balance_sheet_data = []
+                        income_statement_data = []
+
+                        # For income statement items, we want YTD entries
+                        # Strategy: Look for entries where the start date is in January (or earliest month)
+                        # This catches fiscal years that align with calendar years and those that don't
+
+                        all_10q_entries = [
+                            item
+                            for item in units[unit_type]
+                            if item.get("form") in ["10-Q", "10-Q/A"]
+                        ]
+
+                        for item in all_10q_entries:
+                            start = item.get("start")
+                            end = item.get("end")
+                            fy = item.get("fy")
+                            fp = item.get("fp")
+
+                            # Balance sheet items (no start date - point in time)
+                            if not start and end and fy and fp:
+                                balance_sheet_data.append(item)
+                            # Income statement items (start and end)
+                            elif start and end and fy and fp:
+                                # For YTD: the start date should be in January (month 1)
+                                # This works for both calendar fiscal years and shifted fiscal years
+                                from datetime import datetime
+
+                                start_date = datetime.strptime(start, "%Y-%m-%d")
+
+                                # Accept YTD entries (those starting in January)
+                                if start_date.month == 1:
+                                    income_statement_data.append(item)
+                                    if concept in [
+                                        "RevenueFromContractWithCustomerExcludingAssessedTax",
+                                        "NetIncomeLoss",
+                                    ]:
+                                        print(
+                                            f"  Added YTD entry (Jan start): {start} to {end}, fy={fy}, fp={fp}, val={item.get('val')}"
+                                        )
+
+                        # Process income statement data
+                        if income_statement_data:
+                            # Group by unique date range to avoid duplicates from amendments
+                            period_map = {}
+
+                            for item in income_statement_data:
                                 start = item.get("start")
                                 end = item.get("end")
-                                fy = item.get("fy")
-                                fp = item.get("fp")
+                                filed = item.get("filed", "")
 
-                                # Balance sheet items (no start date - point in time)
-                                if not start and end and fy and fp:
-                                    quarterly_data.append(item)
-                                # Income statement items (start and end - look for YTD)
-                                elif start and end and fy and fp:
-                                    # --- UPDATED LOGIC HERE ---
-                                    # Determine fiscal start date for this FY dynamically
-                                    all_fy_starts = [
-                                        x.get("start")
-                                        for x in units[unit_type]
-                                        if x.get("fy") == fy and x.get("start")
-                                    ]
-                                    if all_fy_starts:
-                                        fiscal_start = min(all_fy_starts)
-                                        if start == fiscal_start:
-                                            quarterly_data.append(item)
-                                    # ---------------------------------------
+                                period_key = (start, end)
 
-                        if quarterly_data:
-                            # Sort by end date descending
+                                # Keep most recently filed version
+                                if period_key not in period_map or filed > period_map[
+                                    period_key
+                                ].get("filed", ""):
+                                    period_map[period_key] = item
+
+                            if concept in [
+                                "RevenueFromContractWithCustomerExcludingAssessedTax",
+                                "NetIncomeLoss",
+                            ]:
+                                print(
+                                    f"  After deduplication: {len(period_map)} unique periods"
+                                )
+
+                            # Sort by end date descending (most recent first)
+                            quarterly_data = list(period_map.values())
                             quarterly_data.sort(
                                 key=lambda x: x.get("end", ""), reverse=True
                             )
 
-                            # Check if most recent matches our target
-                            if quarterly_data and len(quarterly_data) > 0:
+                            if quarterly_data:
+                                # Use the most recent entry for THIS concept
                                 most_recent = quarterly_data[0]
-                                most_recent_fy = most_recent.get("fy")
-                                most_recent_fp = most_recent.get("fp")
 
-                                # Only return if it matches the most recent quarter we found
-                                if (
-                                    most_recent_fy == self.most_recent_quarter["year"]
-                                    and most_recent_fp
-                                    == self.most_recent_quarter["quarter"]
-                                ):
-                                    return quarterly_data[:periods]
+                                if concept in [
+                                    "RevenueFromContractWithCustomerExcludingAssessedTax",
+                                    "NetIncomeLoss",
+                                ]:
+                                    print(
+                                        f"  Most recent: {most_recent.get('start')} to {most_recent.get('end')}, val={most_recent.get('val')}"
+                                    )
+
+                                from datetime import datetime
+
+                                most_recent_start = datetime.strptime(
+                                    most_recent.get("start"), "%Y-%m-%d"
+                                )
+                                most_recent_end = datetime.strptime(
+                                    most_recent.get("end"), "%Y-%m-%d"
+                                )
+                                target_period_days = (
+                                    most_recent_end - most_recent_start
+                                ).days
+
+                                result = [most_recent]
+
+                                # Find comparable periods (same length, same start month, prior years)
+                                for item in quarterly_data[1:]:
+                                    if len(result) >= periods:
+                                        break
+
+                                    item_start = datetime.strptime(
+                                        item.get("start"), "%Y-%m-%d"
+                                    )
+                                    item_end = datetime.strptime(
+                                        item.get("end"), "%Y-%m-%d"
+                                    )
+                                    item_period_days = (item_end - item_start).days
+
+                                    # Match: similar period length, same start month, earlier date
+                                    if (
+                                        abs(item_period_days - target_period_days) <= 5
+                                        and item_start.month == most_recent_start.month
+                                        and item_end < most_recent_end
+                                    ):
+                                        result.append(item)
+                                        if concept in [
+                                            "RevenueFromContractWithCustomerExcludingAssessedTax",
+                                            "NetIncomeLoss",
+                                        ]:
+                                            print(
+                                                f"  Matched comparable: {item.get('start')} to {item.get('end')}, val={item.get('val')}"
+                                            )
+
+                                if concept in [
+                                    "RevenueFromContractWithCustomerExcludingAssessedTax",
+                                    "NetIncomeLoss",
+                                ]:
+                                    print(f"  Returning {len(result)} periods\n")
+
+                                return result
+
+                        # Process balance sheet data
+                        elif balance_sheet_data:
+                            balance_sheet_data.sort(
+                                key=lambda x: x.get("end", ""), reverse=True
+                            )
+                            return balance_sheet_data[:periods]
+
                     else:
-                        # Annual data logic (original)
+                        # Annual data logic
                         annual_data = [
                             item
                             for item in units[unit_type]
@@ -234,27 +321,27 @@ class CompanyFinancialAnalyzer:
                         ]
 
                         if annual_data:
-                            # Sort by end date descending to get most recent first
                             annual_data.sort(
                                 key=lambda x: x.get("end", ""), reverse=True
                             )
 
-                            # Check if most recent data is from 2025 or the most recent year
-                            if annual_data and len(annual_data) > 0:
+                            if annual_data:
                                 most_recent_fy = annual_data[0].get("fy")
 
-                                # Only return if data is from 2025 or matches the most recent year
+                                # Only return if recent
                                 if (
                                     most_recent_fy == 2025
                                     or most_recent_fy == self.most_recent_year
                                 ):
                                     return annual_data[:periods]
-                                else:
-                                    # Data is too old, skip this concept
-                                    return []
 
             return []
-        except (KeyError, IndexError, TypeError):
+        except (KeyError, IndexError, TypeError) as e:
+            if concept in [
+                "RevenueFromContractWithCustomerExcludingAssessedTax",
+                "NetIncomeLoss",
+            ]:
+                print(f"ERROR in _extract {concept}: {e}")
             return []
 
     def _get_latest_value(self, values_list: List[Dict]) -> Optional[float]:
@@ -409,12 +496,11 @@ class CompanyFinancialAnalyzer:
         data_info = self._determine_data_availability(sec_facts)
         self.use_quarterly = data_info["use_quarterly"]
         self.most_recent_year = data_info["most_recent_year"]
-        self.most_recent_quarter = data_info["most_recent_quarter"]
 
         if self.use_quarterly:
             results["data_type"] = "quarterly"
             results["most_recent_period"] = (
-                f"FY{self.most_recent_quarter['year']} {self.most_recent_quarter['quarter']}"
+                "Most recent quarterly data (varies by metric)"
             )
         else:
             results["data_type"] = "annual"
