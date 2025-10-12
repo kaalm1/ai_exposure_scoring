@@ -192,8 +192,18 @@ class CompanyFinancialAnalyzer:
                                     quarterly_data.append(item)
                                 # Income statement items (start and end - look for YTD)
                                 elif start and end and fy and fp:
-                                    if "-01-01" in start or "-01-" in start[:8]:
-                                        quarterly_data.append(item)
+                                    # --- UPDATED LOGIC HERE ---
+                                    # Determine fiscal start date for this FY dynamically
+                                    all_fy_starts = [
+                                        x.get("start")
+                                        for x in units[unit_type]
+                                        if x.get("fy") == fy and x.get("start")
+                                    ]
+                                    if all_fy_starts:
+                                        fiscal_start = min(all_fy_starts)
+                                        if start == fiscal_start:
+                                            quarterly_data.append(item)
+                                    # ---------------------------------------
 
                         if quarterly_data:
                             # Sort by end date descending

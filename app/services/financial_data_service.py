@@ -16,7 +16,12 @@ logger = logging.getLogger(__name__)
 class FinancialDataService:
     """Service layer for financial data operations."""
 
-    def __init__(self, session: AsyncSession, user_agent: str):
+    def __init__(
+        self,
+        ai_score_dal: AIScoreDAL,
+        financial_data_dal: FinancialDataDAL,
+        user_agent: str,
+    ):
         """
         Initialize the service.
 
@@ -24,9 +29,8 @@ class FinancialDataService:
             session: AsyncSession for database operations
             user_agent: User-Agent string for SEC API requests
         """
-        self.session = session
-        self.ai_score_dal = AIScoreDAL(session)
-        self.financial_data_dal = FinancialDataDAL(session)
+        self.ai_score_dal = ai_score_dal
+        self.financial_data_dal = financial_data_dal
         self.analyzer = CompanyFinancialAnalyzer(user_agent)
 
     async def sync_all_financial_data(
@@ -80,6 +84,13 @@ class FinancialDataService:
                 # Check if CIK exists
                 if not score.cik:
                     logger.warning(f"Skipping {score.ticker} - no CIK available")
+                    stats["skipped"] += 1
+                    continue
+
+                if not score.ticker:
+                    logger.warning(
+                        f"Skipping {score.company_name} - no ticker available"
+                    )
                     stats["skipped"] += 1
                     continue
 
