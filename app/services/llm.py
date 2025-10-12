@@ -423,7 +423,35 @@ class ProviderManager:
             )
         return self._clients[config.name]
 
-    async def _try_provider(self, config: ProviderConfig, **kwargs) -> Any:
+    def _get_wait_time_for_rate_limit(self, config: ProviderConfig) -> Optional[float]:
+        """Calculate how long to wait before rate limit resets."""
+        if isinstance(self.store, RedisStore):
+            # Check Redis TTL for rate limit keys
+            try:
+                if config.requests_per_minute:
+                    key = self.store._get_redis_key(config.name, "rpm")
+                    ttl = self.store.redis.ttl(key)
+                    if ttl > 0:
+                        return float(ttl)
+            except Exception:
+                pass
+        else:
+            # For in-memory, calculate based on oldest request timestamp
+            tracker = self.store.get_tracker(config.name)
+            current_time = time.time()
+
+            with tracker.lock:
+                if tracker.minute_requests:
+                    oldest_request = tracker.minute_requests[0]
+                    wait_time = 60 - (current_time - oldest_request)
+                    if wait_time > 0:
+                        return wait_time
+
+        return None
+
+    async def _try_provider(
+        self, config: ProviderConfig, wait_for_rate_limit: bool = True, **kwargs
+    ) -> Any:
         """Attempt to make a request with a specific provider."""
         # Check if provider is temporarily failed
         if self._is_provider_failed(config):
@@ -431,7 +459,23 @@ class ProviderManager:
 
         # Check rate limits
         if not self._check_rate_limit(config):
-            raise RateLimitError(f"Rate limit exceeded for {config.name.value}")
+            if wait_for_rate_limit:
+                wait_time = self._get_wait_time_for_rate_limit(config)
+                if wait_time and wait_time <= 60:  # Only wait up to 60 seconds
+                    logger.info(
+                        f"{config.name.value} rate limit reached. Waiting {wait_time:.1f}s for reset..."
+                    )
+                    await asyncio.sleep(wait_time + 0.5)  # Add 0.5s buffer
+
+                    # Check again after waiting
+                    if not self._check_rate_limit(config):
+                        raise Exception(
+                            f"Rate limit still exceeded for {config.name.value}"
+                        )
+                else:
+                    raise Exception(f"Rate limit exceeded for {config.name.value}")
+            else:
+                raise Exception(f"Rate limit exceeded for {config.name.value}")
 
         client = self._get_client(config)
 
@@ -443,12 +487,7 @@ class ProviderManager:
             # Increment usage before making request
             self._increment_usage(config)
 
-            # logger.info(
-            #     f"Making request to {config.name.value} with model {kwargs['model']}"
-            # )
             response = await client.chat.completions.create(**kwargs)
-
-            # logger.info(f"Successfully received response from {config.name.value}")
             return response
 
         except RateLimitError as e:
