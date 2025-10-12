@@ -4,7 +4,7 @@ import json
 import re
 from typing import Optional
 
-from app.services.llm import llm_client
+from app.services.llm import llm_client, Provider
 
 SCORING_SYSTEM_PROMPT = """
 You are an expert financial analyst. 
@@ -214,7 +214,7 @@ Return JSON exactly as instructed in the system prompt. No markdown, no explanat
 """
 
     # Determine response format based on provider
-    if llm_provider and llm_provider.lower() == "nvidia":
+    if llm_provider in [Provider.NVIDIA.value, Provider.GROQ.value]:
         # Nvidia only supports json_object, not json_schema
         response_format = {"type": "json_object"}
     else:

@@ -257,7 +257,7 @@ class ProviderManager:
                         "meta-llama/llama-3.2-3b-instruct:free",
                     ),
                     requests_per_minute=20,
-                    requests_per_day=200,
+                    requests_per_day=1000,
                 )
             )
 
@@ -270,7 +270,7 @@ class ProviderManager:
                     api_key=settings.groq_api_key,
                     model=getattr(settings, "groq_model", "llama-3.1-8b-instant"),
                     requests_per_minute=30,
-                    requests_per_day=14400,
+                    requests_per_day=1000,
                 )
             )
 
@@ -285,8 +285,8 @@ class ProviderManager:
                     base_url="https://generativelanguage.googleapis.com/v1beta/openai",
                     api_key=settings.google_studio_api_key,
                     model=getattr(settings, "google_studio_model", "gemini-1.5-flash"),
-                    requests_per_minute=15,
-                    requests_per_day=1500,
+                    requests_per_minute=10,
+                    requests_per_day=500,
                 )
             )
 
@@ -299,6 +299,7 @@ class ProviderManager:
                     api_key=settings.cerebras_api_key,
                     model=getattr(settings, "cerebras_model", "llama3.1-8b"),
                     requests_per_minute=30,
+                    requests_per_day=14400,
                 )
             )
 
@@ -316,6 +317,8 @@ class ProviderManager:
                     model=getattr(
                         settings, "nvidia_model", "deepseek-r1-distill-qwen-32b"
                     ),
+                    requests_per_day=1000,
+                    requests_per_minute=40,
                 )
             )
 
@@ -416,7 +419,7 @@ class ProviderManager:
             self._clients[config.name] = AsyncOpenAI(
                 base_url=config.base_url,
                 api_key=config.api_key,
-                timeout=30.0,
+                timeout=120.0,
             )
         return self._clients[config.name]
 
