@@ -80,7 +80,7 @@ class CompanyWithFinancialsResponse(BaseModel):
 
     # AI Score fields
     id: int
-    ticker: str
+    ticker: Optional[str] = None
     company_name: str
     cik: Optional[str] = None
 

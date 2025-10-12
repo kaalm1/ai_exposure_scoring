@@ -42,6 +42,7 @@ async def get_scored_companies(
             for score in all_scores
             if score.final_score is not None
             and score.final_score > min_score
+            and score.ticker is not None  # Ensure ticker exists
             and (include_filtered or not score.filter_decision)
         ]
 
