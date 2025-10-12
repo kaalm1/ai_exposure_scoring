@@ -4,7 +4,7 @@ import json
 import re
 from typing import Optional
 
-from app.services.llm import llm_client, Provider
+from app.services.llm import Provider, llm_client
 
 SCORING_SYSTEM_PROMPT = """
 You are an expert financial analyst. 

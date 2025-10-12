@@ -64,6 +64,9 @@ class AIScore(Base):
     chunk_summaries = relationship(
         "ChunkSummary", back_populates="ai_score", cascade="all, delete-orphan"
     )
+    financial_data = relationship(
+        "FinancialData", back_populates="ai_score", cascade="all, delete-orphan"
+    )
 
     def __repr__(self):
         return f"<AIScore(company_name={self.company_name}, final_score={self.final_score})>"
